@@ -45,7 +45,7 @@ class TStream extends ModelHandler
     /**
      * 根据时间模板id查询流媒体
      * @param string $id
-     * @return TStream
+     * @return array
      * @throws \Exception
      */
     public static function findByTemplateId($id)
@@ -61,7 +61,8 @@ class TStream extends ModelHandler
     /**
      * 根据设备id查询流媒体
      * @param array $ids
-     * @return TStream
+     * @return array
+     * @throws \Exception
      */
     public static function findByDeviceId($ids)
     {

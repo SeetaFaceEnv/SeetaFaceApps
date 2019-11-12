@@ -30,6 +30,12 @@ include APP_PATH . '/config/services_cli.php';
 include APP_PATH . '/config/loader.php';
 
 /**
+ * Set time zone
+ */
+date_default_timezone_set('Asia/Shanghai');
+
+
+/**
  * Get config service for use in inline setup below
  */
 $config = $di->getConfig();

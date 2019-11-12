@@ -1,7 +1,9 @@
 <?php
+
 namespace SeetaAiBuildingCommunity\Modules\Backend\Controllers;
 
 use MongoDB\BSON\ObjectId;
+use SeetaAiBuildingCommunity\Common\Manager\SeetaDeviceBase;
 use SeetaAiBuildingCommunity\Common\Manager\SeetaDeviceManager;
 use SeetaAiBuildingCommunity\Common\Manager\Utility;
 use SeetaAiBuildingCommunity\Models\TDevice;
@@ -35,16 +37,17 @@ class DeviceController extends ControllerBase
         }
 
         //发现未知设备
-        $findResult = SeetaDeviceManager::sendRequest(SYSEND_DEVICE_DISCOVER_URL);
-        if (!is_array($findResult)) {
-            return parent::getResponse(parent::makeErrorResponse($result));
+        $seetaDeviceManager = new SeetaDeviceManager(SeetaDeviceManager::SYSEND_DEVICE_DISCOVER_URL);
+        $findResult = $seetaDeviceManager->sendRequest("GET");
+        if ($result['res'] != ERR_SUCCESS) {
+            return parent::getResponse(parent::makeErrorResponse($result['res']));
         }
         $discoverDevices = $findResult['devices'];
         if (empty($discoverDevices)) {
             return parent::getResponse(parent::makeErrorResponse(ERR_DEVICE_NOT_EXIST));
         }
         //根据设备编码，查找设备的类型
-        foreach ($discoverDevices as $discoverDevice){
+        foreach ($discoverDevices as $discoverDevice) {
             if ($discoverDevice['device_code'] == $code) {
                 $deviceType = (int)$discoverDevice['type'];
             }
@@ -59,20 +62,18 @@ class DeviceController extends ControllerBase
         $postData['device_codes'] = [$code];
         $postData['group_id'] = $groupId;
 
-        $result = SeetaDeviceManager::sendRequest(SYSEND_DEVICE_ADD_URL, $postData);
-        if (!is_array($result)) {
-            return parent::getResponse(parent::makeErrorResponse($result));
+        $seetaDeviceManager->setUrl(SeetaDeviceManager::SYSEND_DEVICE_ADD_URL);
+        $seetaDeviceManager->setParams($postData);
+        $result = $seetaDeviceManager->sendRequest("POST");
+        if ($result['res'] != ERR_SUCCESS) {
+            return parent::getResponse(parent::makeErrorResponse($result['res']));
         }
-        if ($result["device_results"][0]['result'] != true) {
-            Utility::log('logger', json_encode($result), __METHOD__, __LINE__);
-            return parent::getResponse(parent::makeErrorResponse(ERR_DEVICE_OPERATION_WRONG));
-        }
+
 
         $deviceParams = empty($result["device_results"][0]['device_params']) ? (object)[] : (object)$result["device_results"][0]['device_params'];
         $cameraParams = empty($result["device_results"][0]['camera_params'][0]) ? (object)[] : (object)$result["device_results"][0]['camera_params'][0];
 
-        //本地添加设备
-        $device = new TDevice([
+        $deviceInfo = [
             "name" => $name,
             "code" => $code,
             "type" => $deviceType,
@@ -80,40 +81,73 @@ class DeviceController extends ControllerBase
             "stream_ids" => [],
             "device_params" => $deviceParams,
             "camera_params" => $cameraParams,
+            "report_1n" => "",
+            "report_11" => "",
+            "time_template_id" => "",
             "status" => DEVICE_STATUS_VALID,
-        ]);
+        ];
+        //本地添加设备
+        $device = new TDevice($deviceInfo);
 
-
-        try{
+        try {
             //如果选择了设备组，则修改设备的默认参数
             if (!empty($groupId)) {
                 $group = TGroup::findById(new ObjectId($groupId));
                 $device->device_params = $group->device_params;
             }
             $device->save();
-        } catch (\Exception $exception) {
+            $system = TSystem::findSystem();
+            $serverUrl = $system->server_url;
+        } catch ( \Exception $exception ) {
             //数据库出错
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
         }
 
-        if ($deviceType == DEVICE_TYPE_1 || $deviceType == DEVICE_TYPE_2) {
+        if ($deviceType == DEVICE_TYPE_FACE_AND_CARD_MACHINE || $deviceType == DEVICE_TYPE_ACCESS_CONTROL_MACHINE) {
             //给设备添加1:1,1:n地址
-            $system = TSystem::findSystem();
-            $cameraParams->report_11_url = $system->server_url.REPORT_11_URL;
-            $cameraParams->report_1n_url = $system->server_url.REPORT_1N_URL;
+            $cameraParams->report_11_url = $serverUrl . REPORT_11_URL;
+            $cameraParams->report_1n_url = $serverUrl . REPORT_1N_URL;
 
             //请求设备管理平台，更改对应设备的流参数
             $postData = [];
             $postData['device_code'] = $code;
             $postData['camera_params'] = [$cameraParams];
 
-            $result = SeetaDeviceManager::sendRequest(SYSEND_CAMERA_EDIT_URL, $postData);
-            if (!is_array($result)) {
-                return parent::getResponse(parent::makeErrorResponse($result));
+            $seetaDeviceManager->setUrl(SeetaDeviceManager::SYSEND_CAMERA_EDIT_URL);
+            $seetaDeviceManager->setParams($postData);
+            $result = $seetaDeviceManager->sendRequest("POST");
+            if ($result['res'] != ERR_SUCCESS) {
+                return parent::getResponse(parent::makeErrorResponse($result['res']));
             }
             if ($result['device_result'] != true) {
                 return parent::getResponse(parent::makeErrorResponse(ERR_DEVICE_OPERATION_WRONG));
+            }
+        }
+
+        //PC只能网关给设备参数加入上报1:n地址
+        if ($deviceType == DEVICE_TYPE_PC_INTELLIGENT_GATEWAY) {
+            $deviceParams->report_1n_url = $serverUrl.REPORT_1N_URL;
+
+            //请求设备管理平台，编辑设备
+            $postData = [];
+            $postData['device_codes'] = [$code];
+            $postData['device_params'] = $deviceParams;
+
+            $seetaDeviceManager->setUrl(SeetaDeviceManager::SYSEND_DEVICE_SET_URL);
+            $seetaDeviceManager->setParams($postData);
+            $result = $seetaDeviceManager->sendRequest("POST");
+            if ($result['res'] != ERR_SUCCESS) {
+                return parent::getResponse(parent::makeErrorResponse($result['res']));
+            }
+
+            try {
+                $device->device_params = $deviceParams;
+                $device->save();
+            } catch ( \Exception $exception ) {
+                //数据库出错
+                Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
+                return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
             }
         }
 
@@ -135,6 +169,8 @@ class DeviceController extends ControllerBase
         $timeTemplateId = $this->request->getPost("time_template_id");
         $deviceParams = json_decode($this->request->getPost("device_params")) ?: (object)[];
         $cameraParams = json_decode($this->request->getPost("camera_params")) ?: (object)[];
+        $report1N = $this->request->getPost("report_1n") ?: "";
+        $report11 = $this->request->getPost("report_11") ?: "";
 
         if (empty($sessionId) || empty($id)) {
             return parent::getResponse(parent::makeErrorResponse(ERR_PARAM_WRONG));
@@ -151,57 +187,68 @@ class DeviceController extends ControllerBase
             if (empty($device)) {
                 return parent::getResponse(parent::makeErrorResponse(ERR_DEVICE_NOT_EXIST));
             }
-        } catch (\Exception $exception) {
+        } catch ( \Exception $exception ) {
             //数据库出错
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
         }
 
-        try{
+        //保存本地数据
+        try {
+            $device->report_1n = trim($report1N);
+            $device->report_11 = trim($report11);
+            $device->name = $name;
+            $device->save();
+        } catch ( \Exception $exception ) {
+            //数据库出错
+            Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
+            return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
+        }
+
+        try {
             //如果选择了设备组，则修改设备的默认参数
             if (!empty($groupId) && $groupId != $device->group_id) {
                 $group = TGroup::findById(new ObjectId($groupId));
                 $deviceParams = $group->device_params;
             }
-        } catch (\Exception $exception) {
+        } catch ( \Exception $exception ) {
             //数据库出错
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
         }
 
-        if ((array)$deviceParams != (array)$device->device_params) {
+        $seetaDeviceManager = new SeetaDeviceManager();
+        if ((array)$deviceParams != (array)$device->device_params || $groupId != $device->group_id) {
             //请求设备管理平台，编辑设备
+
             $deviceData = [];
             $deviceData['device_codes'] = [$device->code];
             $deviceData['device_params'] = $deviceParams;
-            //将设备从设备组内移除
-            if (isset($groupId)) {
-                $deviceData['group_id'] = $groupId;
-            } else {
-                $deviceData['group_id'] = "default";
+            $deviceData['group_id'] = isset($groupId) ? $groupId : "default";
+
+            $seetaDeviceManager->setUrl(SeetaDeviceManager::SYSEND_DEVICE_SET_URL);
+            $seetaDeviceManager->setParams($deviceData);
+            $result = $seetaDeviceManager->sendRequest("POST");
+            Utility::log('logger', $result['res'], __METHOD__, __LINE__);
+            Utility::log('logger', $result['res'], __METHOD__, __LINE__);
+            if ($result['res'] != ERR_SUCCESS) {
+                return parent::getResponse(parent::makeErrorResponse($result['res']));
             }
 
-            $result = SeetaDeviceManager::sendRequest(SYSEND_DEVICE_SET_URL, $deviceData);
-            if (!is_array($result)) {
-                return parent::getResponse(parent::makeErrorResponse($result));
+            //保存本地数据
+            try {
+                $device->group_id = $groupId;
+                $device->device_params = $deviceParams;
+                $device->save();
+            } catch ( \Exception $exception ) {
+                //数据库出错
+                Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
+                return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
             }
-        }
-
-        //保存本地数据
-        try {
-            $device->name = $name;
-            $device->group_id = $groupId;
-            $device->device_params = $deviceParams;
-            $device->save();
-        } catch (\Exception $exception) {
-            //数据库出错
-            Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
-            return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
         }
 
         //编辑流参数
-        if ($timeTemplateId !=  $device->time_template_id || json_encode($cameraParams) != json_encode($device->camera_params))
-        {
+        if ($timeTemplateId != $device->time_template_id || json_encode($cameraParams) != json_encode($device->camera_params)) {
             if (!empty($timeTemplateId)) {
                 $timeTemplate = TTimeTemplate::findById(new ObjectId($timeTemplateId));
                 $cameraParams->time_slots = $timeTemplate->time_slots;
@@ -210,16 +257,18 @@ class DeviceController extends ControllerBase
             }
 
             $system = TSystem::findSystem();
-            $cameraParams->report_11_url = $system->server_url.REPORT_11_URL;
-            $cameraParams->report_1n_url = $system->server_url.REPORT_1N_URL;
+            $cameraParams->report_11_url = $system->server_url . REPORT_11_URL;
+            $cameraParams->report_1n_url = $system->server_url . REPORT_1N_URL;
 
             $cameraData = [];
             $cameraData['device_code'] = $device->code;
             $cameraData['camera_params'] = [$cameraParams];
 
-            $result = SeetaDeviceManager::sendRequest(SYSEND_CAMERA_EDIT_URL, $cameraData);
-            if (!is_array($result)) {
-                return parent::getResponse(parent::makeErrorResponse($result));
+            $seetaDeviceManager->setUrl(SeetaDeviceManager::SYSEND_CAMERA_EDIT_URL);
+            $seetaDeviceManager->setParams($cameraData);
+            $result = $seetaDeviceManager->sendRequest("POST");
+            if ($result['res'] != ERR_SUCCESS) {
+                return parent::getResponse(parent::makeErrorResponse($result['res']));
             }
             if ($result["device_result"] != true) {
                 Utility::log('logger', json_encode($result), __METHOD__, __LINE__);
@@ -230,7 +279,7 @@ class DeviceController extends ControllerBase
                 $device->time_template_id = $timeTemplateId;
                 $device->camera_params = $cameraParams;
                 $device->save();
-            } catch (\Exception $exception) {
+            } catch ( \Exception $exception ) {
                 //数据库出错
                 Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
                 return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
@@ -266,7 +315,7 @@ class DeviceController extends ControllerBase
             if (empty($device)) {
                 return parent::getResponse(parent::makeErrorResponse(ERR_DEVICE_NOT_EXIST));
             }
-        } catch (\Exception $exception) {
+        } catch ( \Exception $exception ) {
             //数据库出错
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
@@ -302,7 +351,7 @@ class DeviceController extends ControllerBase
             if (empty($device)) {
                 return parent::getResponse(parent::makeErrorResponse(ERR_DEVICE_NOT_EXIST));
             }
-        } catch (\Exception $exception) {
+        } catch ( \Exception $exception ) {
             //数据库出错
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
@@ -312,9 +361,10 @@ class DeviceController extends ControllerBase
         $postData = [];
         $postData['device_codes'] = [$device->code];
 
-        $result = SeetaDeviceManager::sendRequest(SYSEND_DEVICE_DELETE_URL, $postData);
-        if (!is_array($result)) {
-            return parent::getResponse(parent::makeErrorResponse($result));
+        $seetaDeviceManager = new SeetaDeviceManager(SeetaDeviceManager::SYSEND_DEVICE_DELETE_URL, $postData);
+        $result = $seetaDeviceManager->sendRequest("POST");
+        if ($result['res'] != ERR_SUCCESS) {
+            return parent::getResponse(parent::makeErrorResponse($result['res']));
         }
         if ($result["device_results"][0]['result'] != true) {
             return parent::getResponse(parent::makeErrorResponse(ERR_DEVICE_OPERATION_WRONG));
@@ -326,7 +376,7 @@ class DeviceController extends ControllerBase
 
             //删除掉人员的中的此设备
             TMember::deleteDeviceId($id);
-        } catch (\Exception $exception) {
+        } catch ( \Exception $exception ) {
             //数据库出错
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
@@ -361,10 +411,10 @@ class DeviceController extends ControllerBase
 
         $data = [];
         if (!empty($code)) {
-            $data['code'] = $code;
+            $data['code'] = trim($code);
         }
         if (!empty($name)) {
-            $data['name'] = $name;
+            $data['name'] = trim($name);
         }
 
         $data['field'] = "_id";
@@ -373,7 +423,7 @@ class DeviceController extends ControllerBase
         try {
             $devices = TDevice::search($data, (int)$startIndex, (int)$getCount);
             $count = TDevice::searchCount($data);
-        } catch (\Exception $exception) {
+        } catch ( \Exception $exception ) {
             //数据库出错
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
@@ -384,18 +434,74 @@ class DeviceController extends ControllerBase
             $deviceCodes[] = $device->code;
         }
 
-        $result = SeetaDeviceManager::sendRequest(SYSEND_DEVICE_LIST_URL, ["device_codes" => $deviceCodes]);
-        if (!is_array($result)) {
-            return parent::getResponse(parent::makeErrorResponse($result));
+        $postData = [];
+        $postData['device_codes'] = $deviceCodes;
+
+        $seetaDeviceManager = new SeetaDeviceManager(SeetaDeviceManager::SYSEND_DEVICE_LIST_URL, $postData);
+        $result = $seetaDeviceManager->sendRequest("POST");
+        $checkAlive = true;
+        if ($result['res'] != ERR_SUCCESS) {
+            $checkAlive = false;
+        }
+
+        $result = $seetaDeviceManager->listDevice($deviceCodes);
+
+        if (($result['res']) != ERR_SUCCESS) {
+            $checkAlive = false;
         }
 
         foreach ($devices as $key => $device1) {
+            $streamIds = [];
+            //设备状态查询
             $devices[$key]['alive'] = DEVICE_NOT_ALIVE;
-            foreach ($result['devices'] as $device2) {
-                if ($device1['code'] == $device2['device_code']) {
-                    $devices[$key]['alive'] = $device2['alive'];
+            if ($checkAlive == true) {
+                foreach ($result['devices'] as $device2) {
+                    if ($device1['code'] == $device2['device_code']) {
+                        $devices[$key]['alive'] = $device2['alive'];
+                    }
                 }
             }
+
+            // 处理流类型
+            $type = $device1['type'];
+            $streamId = [];
+
+            //人证一体机、门禁机
+            if (in_array($type, [DEVICE_TYPE_FACE_AND_CARD_MACHINE, DEVICE_TYPE_ACCESS_CONTROL_MACHINE])) {
+                if ($type == DEVICE_TYPE_FACE_AND_CARD_MACHINE) {
+                    $streamId['stream_name'] = STREAM_FACE_AND_CARD_MACHINE;
+                } else {
+                    $streamId['stream_name'] = STREAM_TYPE_ACCESS_CONTROL_MACHINE;
+                }
+
+                if (!empty($device1['time_template_id'])) {
+                    $tTimeTemplate = TTimeTemplate::findById(new ObjectId($device1['time_template_id']));
+                    $streamId['time_template_name'] = $tTimeTemplate->name;
+                } else {
+                    $streamId['time_template_name'] = "";
+                }
+                $streamIds[] = $streamId;
+            }
+            //智能网关
+            elseif (in_array($type, [DEVICE_TYPE_SEETA_INTELLIGENT_GATEWAY, DEVICE_TYPE_PC_INTELLIGENT_GATEWAY])) {
+                if (count($device1['stream_ids']) >= 1) {
+
+                    foreach ($device1['stream_ids'] as $stream_id) {
+                        $tStream = TStream::findById(new ObjectId($stream_id));
+                        $streamId['stream_name'] = $tStream->name;
+
+                        if (!empty($tStream->time_template_id)) {
+                            $tTimeTemplate = TTimeTemplate::findById(new ObjectId($tStream->time_template_id));
+                            $streamId['time_template_name'] = $tTimeTemplate->name;
+                        } else {
+                            $streamId['time_template_name'] = "";
+                        }
+                        $streamIds[] = $streamId;
+                    }
+
+                }
+            }
+            $devices[$key]['stream_time_template'] = $streamIds;
         }
 
         return parent::getResponse(array(
@@ -423,10 +529,8 @@ class DeviceController extends ControllerBase
         }
 
         //向设备管理平台请求同步数据
-        $result = SeetaDeviceManager::sendRequest(SYSEND_DEVICE_DISCOVER_URL);
-        if (!is_array($result)) {
-            return parent::getResponse(parent::makeErrorResponse($result));
-        }
+        $seetaDeviceManager = new SeetaDeviceManager(SeetaDeviceManager::SYSEND_DEVICE_DISCOVER_URL);
+        $result = $seetaDeviceManager->sendRequest("GET");
 
         return parent::getResponse(array(
             CODE => ERR_SUCCESS,
@@ -442,7 +546,7 @@ class DeviceController extends ControllerBase
         $sessionId = $this->request->getPost("session_id");
 
         $id = $this->request->getPost("id");
-        $addStreamIds = json_decode($this->request->getPost("add_stream_ids"));
+        $newStreamIds = json_decode($this->request->getPost("add_stream_ids"));
         $delStreamIds = json_decode($this->request->getPost("del_stream_ids"));
 
         if (empty($sessionId) || empty($id)) {
@@ -460,17 +564,17 @@ class DeviceController extends ControllerBase
             if (empty($device)) {
                 return parent::getResponse(parent::makeErrorResponse(ERR_DEVICE_NOT_EXIST));
             }
-            if ($device->type != DEVICE_TYPE_3) {
+            if ($device->type != DEVICE_TYPE_SEETA_INTELLIGENT_GATEWAY && $device->type != DEVICE_TYPE_PC_INTELLIGENT_GATEWAY) {
                 return parent::getResponse(parent::makeErrorResponse(ERR_DEVICE_CANT_ADD_STREAM));
             }
 
             //新添加的流
-            $addStreamObIds = [];
-            foreach ($addStreamIds as $addStreamId) {
-                $addStreamObIds[] = new ObjectId($addStreamId);
+            $newStreamObjectIds = [];
+            foreach ($newStreamIds as $newStreamId) {
+                $newStreamObjectIds[] = new ObjectId($newStreamId);
             }
-            $addStreams = TStream::findByIds($addStreamObIds);
-        } catch (\Exception $exception) {
+            $newStreams = TStream::findByIds($newStreamObjectIds);
+        } catch ( \Exception $exception ) {
             //数据库出错
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
@@ -478,7 +582,7 @@ class DeviceController extends ControllerBase
 
         $webcamCount = 0;
         $cameraParams = [];
-        foreach ($addStreams as $stream) {
+        foreach ($newStreams as $stream) {
             $param = $stream->camera_params;
             $param->id = (string)$stream->id;
 
@@ -495,20 +599,21 @@ class DeviceController extends ControllerBase
             $delData['device_code'] = $device->code;
             $delData['camera_ids'] = $delStreamIds;
 
-            $result = SeetaDeviceManager::sendRequest(SYSEND_CAMERA_DELETE_URL, $delData);
-            if (!is_array($result)) {
-                return parent::getResponse(parent::makeErrorResponse($result));
+            $seetaDeviceManager = new SeetaDeviceManager(SeetaDeviceManager::SYSEND_CAMERA_DELETE_URL, $delData);
+            $result = $seetaDeviceManager->sendRequest("POST");
+            if ($result['res'] != ERR_SUCCESS) {
+                return parent::getResponse(parent::makeErrorResponse($result['res']));
             }
             if ($result['device_result'] != true) {
                 return parent::getResponse(parent::makeErrorResponse(ERR_DEVICE_DEL_STREAM_WRONG));
             }
 
             //本地减少流
-            $newStreamIds = array_diff((array)$device->stream_ids, $delStreamIds);
-            $device->stream_ids = (array)$newStreamIds;
+            $nowStreamIds = array_diff((array)$device->stream_ids, $delStreamIds);
+            $device->stream_ids = array_values($nowStreamIds);
             try {
                 $device->save();
-            } catch (\Exception $exception) {
+            } catch ( \Exception $exception ) {
                 //数据库出错
                 Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
                 return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
@@ -522,7 +627,7 @@ class DeviceController extends ControllerBase
 
         try {
             $streams = TStream::findByIds($streamIds);
-        } catch (\Exception $exception) {
+        } catch ( \Exception $exception ) {
             //数据库出错
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
@@ -539,26 +644,26 @@ class DeviceController extends ControllerBase
         }
 
         //增加流媒体, 向设备管理平台请求同步数据
-        if (!empty($addStreams)) {
+        if (!empty($newStreams)) {
             $addData = [];
             $addData['device_code'] = $device->code;
             $addData['camera_params'] = $cameraParams;
 
-            $result = SeetaDeviceManager::sendRequest(SYSEND_CAMERA_ADD_URL, $addData);
-            if (!is_array($result)) {
-                return parent::getResponse(parent::makeErrorResponse($result));
-            }
-            if ($result['device_result'] != true) {
+            $seetaDeviceManager = new SeetaDeviceManager(SeetaDeviceManager::SYSEND_CAMERA_ADD_URL, $addData);
+            $result = $seetaDeviceManager->sendRequest("POST");
+            if ($result['res'] != ERR_SUCCESS) {
+                return parent::getResponse(parent::makeErrorResponse($result['res']));
+            }if ($result['device_result'] != true) {
                 return parent::getResponse(parent::makeErrorResponse(ERR_DEVICE_OPERATION_WRONG));
             }
 
             //本地增加流
-            $newStreamIds = array_unique(array_merge((array)$device->stream_ids, $addStreamIds));  //数组相加并去重
-            $device->stream_ids = (array)$newStreamIds;
+            $nowStreamIds = array_unique(array_merge((array)$device->stream_ids, $newStreamIds));  //数组相加并去重
+            $device->stream_ids = array_values($nowStreamIds);
 
             try {
                 $device->save();
-            } catch (\Exception $exception) {
+            } catch ( \Exception $exception ) {
                 //数据库出错
                 Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
                 return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
@@ -593,14 +698,14 @@ class DeviceController extends ControllerBase
 
         try {
             $fullPath = $this->uploadFile($dir, "apk_file", $filename);
-        } catch (\Exception $exception) {
+        } catch ( \Exception $exception ) {
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return parent::getResponse(parent::makeErrorResponse(ERR_FILE_UPLOAD_WRONG));
         }
 
         try {
             $system = TSystem::findSystem();
-        } catch (\Exception $exception) {
+        } catch ( \Exception $exception ) {
             //数据库出错
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
@@ -611,7 +716,8 @@ class DeviceController extends ControllerBase
             return parent::getResponse(parent::makeErrorResponse(ERR_FILE_UPLOAD_WRONG));
         }
 
-        //对文件内容进行md5加密
+        $apkUrl = Utility::filePathToDownloadUrl($system->server_url, $fullPath);
+        //生成文件md5核验值
         $etag = md5(file_get_contents($fullPath));
 
         //向设备管理平台请求同步数据
@@ -620,11 +726,8 @@ class DeviceController extends ControllerBase
         $postData['apk_url'] = Utility::filePathToDownloadUrl($system->server_url, $fullPath);
         $postData['etag'] = $etag;
 
-        $result = SeetaDeviceManager::sendRequest(SYSEND_DEVICE_UPDATE_URL, $postData);
-        Utility::log('logger',"apk".json_encode($result), __METHOD__, __LINE__);
-        if (!is_array($result)) {
-            return parent::getResponse(parent::makeErrorResponse($result));
-        }
+        $seetaDeviceManager = new SeetaDeviceManager(SeetaDeviceManager::SYSEND_DEVICE_UPDATE_URL, $postData);
+        $seetaDeviceManager->updateDevice($apkUrl, $etag, $deviceCodes);
 
         return parent::getResponse(array(
             CODE => ERR_SUCCESS,
@@ -634,7 +737,7 @@ class DeviceController extends ControllerBase
     /**
      * 设备应答
      */
-    public function responseAction()
+    public function testAction()
     {
         $sessionId = $this->request->getPost("session_id");
 
@@ -655,7 +758,7 @@ class DeviceController extends ControllerBase
             if (empty($device)) {
                 return parent::getResponse(parent::makeErrorResponse(ERR_DEVICE_NOT_EXIST));
             }
-        } catch (\Exception $exception) {
+        } catch ( \Exception $exception ) {
             //数据库出错
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
@@ -664,12 +767,12 @@ class DeviceController extends ControllerBase
         //向设备管理平台发送请求
         $postData = [];
         $postData['device_code'] = $device->code;
-        $postData['types'] = [1,2];
+        $postData['types'] = [DEVICE_TEST_LIGHT, DEVICE_TEST_VOICE];
 
-        $result = SeetaDeviceManager::sendRequest(SYSEND_DEVICE_TEST_URL, $postData);
-
-        if (!is_array($result)) {
-            return parent::getResponse(parent::makeErrorResponse($result));
+        $seetaDeviceManager = new SeetaDeviceManager(SeetaDeviceManager::SYSEND_DEVICE_TEST_URL, $postData);
+        $result = $seetaDeviceManager->sendRequest("POST");
+        if ($result['res'] != ERR_SUCCESS) {
+            return parent::getResponse(parent::makeErrorResponse($result['res']));
         }
 
         return parent::getResponse(array(

@@ -3,7 +3,6 @@ namespace SeetaAiBuildingCommunity\Common\Manager;
 
 use Phalcon\Di;
 use Phalcon\Text;
-use function Psy\debug;
 
 class Utility
 {
@@ -86,65 +85,30 @@ class Utility
      * @param string $private_key
      * @param array $data
      * @param string $ip
-     * @param integer $platformType
      * @return integer
      * @throws
      */
-    static public function checkSignature($private_key, $data, $ip, $platformType){
+    static public function checkSignature($private_key, $data, $ip){
         $signature = $data['signature'];
-        switch ($platformType) {
-            case PLATFORM_TYPE_WEB:
-                $hash2 = RsaManager::decrypt(base64_decode($signature), $private_key);
-                break;
-            case PLATFORM_TYPE_WECHAT:
-                $hash2 = RsaManager::decryptPkcs1(base64_decode($signature), $private_key);
-                break;
-            case PLATFORM_TYPE_ANDROID:
-                $hash2 = RsaManager::decryptPkcs1(base64_decode($signature), $private_key);
-                break;
-            default:
-                $hash2 = RsaManager::decrypt(base64_decode($signature), $private_key);
-                break;
-        }
-
+        $hash2 = RsaManager::decrypt(base64_decode($signature), $private_key);
 
         $timestamp = $data['timestamp'];
         unset($data['signature']);
         unset($data['timestamp']);
-        $session_manager = new SessionManager($platformType);
+        $session_manager = new SessionManager();
 
-        if ($platformType != PLATFORM_TYPE_ANDROID){
-            //进行升序排序
-            if($platformType == PLATFORM_TYPE_WECHAT && (!empty($data))) {
-                ksort($data);
-            }
-            $session_id = $data['session_id'];
-            unset($data['session_id']);
-            // 获取 Token
-            $token = $session_manager->getSession($session_id, SessionManager::FIELD_NAME_TOKEN);
+        $session_id = $data['session_id'];
+        unset($data['session_id']);
+        // 获取 Token
+        $token = $session_manager->getSession($session_id, SessionManager::FIELD_NAME_TOKEN);
 
-            //检查签名
-            $string = json_encode([
-                'access_token' => $token,
-                'data' => empty($data) ? null : $data,
-                'session_id' => $session_id,
-                'timestamp' => (int)$timestamp,
-            ], JSON_UNESCAPED_UNICODE + JSON_UNESCAPED_SLASHES);
-        }
-        else{
-            $serial_code = $data['serial_code'];
-            unset($data['serial_code']);
-            // 获取 Token
-            $token = $session_manager->getSession($serial_code, SessionManager::FIELD_NAME_TOKEN);
-
-            //检查签名
-            $string = json_encode([
-                'access_token' => $token,
-                'data' => empty($data) ? null : $data,
-                'serial_code' => $serial_code,
-                'timestamp' => (int) $timestamp,
-            ], JSON_UNESCAPED_UNICODE + JSON_UNESCAPED_SLASHES);
-        }
+        //检查签名
+        $string = json_encode([
+            'access_token' => $token,
+            'data' => empty($data) ? null : $data,
+            'session_id' => $session_id,
+            'timestamp' => (int)$timestamp,
+        ], JSON_UNESCAPED_UNICODE + JSON_UNESCAPED_SLASHES);
 
         $hash1 = bin2hex(hash('sha256', $string, true));
 
@@ -181,14 +145,13 @@ class Utility
     /**
      * 刷新session存活时间
      * @param string $session_id
-     * @param integer $platformType
      * @throws
      * */
-    static public function refreshSession($session_id, $platformType = PLATFORM_TYPE_WEB){
-        $session_manager = new SessionManager($platformType);
+    static public function refreshSession($session_id){
+        $session_manager = new SessionManager();
         $session_manager->refreshSession($session_id);
 
-        $rsa_manager = new RsaManager($platformType);
+        $rsa_manager = new RsaManager();
         $rsa_manager->refreshRsaKey($session_id);
 
     }
@@ -209,22 +172,6 @@ class Utility
     }
 
     /**
-     * 图片路径转换成URL
-     *
-     * @param string $server_url
-     * @param string $path
-     * @return string
-     *
-     * */
-    static public function imagePathToDownloadUrl($server_url, $path){
-        $key = self::create_uuid($path);
-        $manager = new ImageManager();
-        $manager->setImageKey($key, $path);
-
-        return $server_url.IMAGE_DOWNLOAD_URL.$key;
-    }
-
-    /**
      * 文件路径转换成URL
      *
      * @param string $server_url
@@ -233,11 +180,56 @@ class Utility
      *
      * */
     static public function filePathToDownloadUrl($server_url, $path){
-        $key = self::create_uuid($path);
-        $manager = new FileManager();
-        $manager->setFileKey($key, $path);
+        $path = str_replace(BASE_PATH,'', $path);
+        return $server_url.$path;
+    }
 
-        return $server_url.File_DOWNLOAD_URL.$key;
+    /**
+     * 将Base64图片转换为本地图片并保存(带格式符)
+     * @param string $base64_image_content 图片的base64
+     * @param string $path 存储路径
+     * @return bool|string
+     */
+    static public function formatBase64ToImage($base64_image_content, $path)
+    {
+        //匹配出图片的格式
+        if (preg_match('/^(data:\s*image\/(\w+);base64,)/', $base64_image_content, $result)) {
+            $type = $result[2];
+            $new_file = $path . "/" .  date("Y-M-d_H-i-s") . "/";
+            if (!file_exists($new_file)) {
+                //检查是否有该文件夹，如果没有就创建，并给予最高权限
+                mkdir($new_file, 0755, TRUE);
+            }
+            $new_file = $new_file . Utility::create_uuid() . ".{$type}";
+            if (file_put_contents($new_file, base64_decode(str_replace($result[1], '', $base64_image_content)))) {
+                return $new_file;
+            } else {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+
+    /**
+     * 将Base64图片转换为本地图片并保存(不带格式符)
+     * @param string $base64_image_content 图片的base64
+     * @param string $path 存储路径
+     * @return bool|string
+     */
+    static public function base64ToImage($base64_image_content, $path)
+    {
+        $new_file = $path . "/" .  date("Y-M-d_H-i-s") . "/";
+        if (!file_exists($new_file)) {
+            //检查是否有该文件夹，如果没有就创建，并给予最高权限
+            mkdir($new_file, 0755, TRUE);
+        }
+        $new_file = $new_file . self::create_uuid() . ".jpg";
+        if (file_put_contents($new_file, base64_decode($base64_image_content))) {
+            return $new_file;
+        } else {
+            return false;
+        }
     }
 
     /**发送post请求

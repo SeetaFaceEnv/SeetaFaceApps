@@ -2,12 +2,22 @@
 
 当前项目为视拓智慧园区社区版的后端部分
 
+
+
 ## 二、项目框架
 
-项目使用PHP的phalcon3.4框架。
+当前项目使用的是phalcon3.4框架
+
 
 
 ##  三、目录架构
+**- app** ：为后台业务层代码
+**- docker_deployment**：使用docker-compose部署项目的配置文件
+
+
+
+app
+
 - common 				【公共模块】
   - languages			【错误码的映射】
   - library 	                      【类库目录】
@@ -36,8 +46,6 @@
   - cli
     - tasks
       - MainTask.php 				【脚本文件】
-
-
 
 ## 四、系统设置
 
@@ -81,7 +89,7 @@ defined('SYSEND_SERVER') || define('SYSEND_SERVER',"http://192.168.0.7:7879/");
 
 
 
-**1.4、配置mongodb、redis连接信息**
+**1.4、配置mongodb、redis、mqtt连接信息**
 
 ```php
 # 将以下的mongodb的信息，改成实际的mongodb信息
@@ -99,6 +107,15 @@ defined('SYSEND_SERVER') || define('SYSEND_SERVER',"http://192.168.0.7:7879/");
         'port' => 6379,
         'password' => '',   //local server
     ],
+
+#将mqtt信息改成实际服务器信息，以及端口
+'mqtt' => [
+        'host' => '192.168.0.8',
+        'port' => 1883,
+        'webPort' => 8083,
+        'passwd' => '',
+        'user' => '',
+    ],
 ```
 
 
@@ -115,7 +132,3 @@ $ php /home/www-root/SeetaAiBuildingCommunity/php/run main createAdmin
 
 创建的初始账户账户，用户名：admin，密码：123456
 
-
-
-
-[phaclon3.4下载地址](https://pan.baidu.com/s/1l5hxqvTIUwDNyjllcsflvQ)

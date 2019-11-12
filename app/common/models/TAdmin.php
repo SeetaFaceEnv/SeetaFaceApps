@@ -41,6 +41,7 @@ class TAdmin extends ModelHandler
      *
      * @param string $username
      * @return TAdmin
+     * @throws \Exception
      */
     public static function findByUsername($username)
     {

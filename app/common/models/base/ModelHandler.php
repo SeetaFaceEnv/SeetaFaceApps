@@ -55,7 +55,7 @@ abstract class ModelHandler extends MongoDbHandler implements JsonSerializable
      * 以Query查询, if exit, return Object, if not, return null
      * @param array $query
      * @param array $option
-     * @return Object
+     * @return mixed
      * @throws \Exception
      */
     protected static function findByQuery($query, $option = [])

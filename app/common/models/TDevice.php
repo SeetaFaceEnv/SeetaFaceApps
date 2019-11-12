@@ -68,6 +68,18 @@ class TDevice extends ModelHandler
 
     /**
      *
+     * @var string
+     */
+    public $report_11;
+
+    /**
+     *
+     * @var string
+     */
+    public $report_1n;
+
+    /**
+     *
      * @var integer
      */
     public $status;
@@ -76,7 +88,7 @@ class TDevice extends ModelHandler
     /**
      * 查询包含某个流_id的设备
      * @param $id
-     * @return TDevice
+     * @return array
      * @throws \Exception
      */
     public static function findByStreamId($id)
@@ -92,7 +104,7 @@ class TDevice extends ModelHandler
     /**
      * 查询包含多个流_id的设备
      * @param $id
-     * @return TDevice
+     * @return array
      * @throws \Exception
      */
     public static function findByStreamIds($id)
@@ -108,7 +120,8 @@ class TDevice extends ModelHandler
     /**
      * 根据设备组id查询设备
      * @param $id
-     * @return TDevice
+     * @return array
+     * @throws \Exception
      */
     public static function findByGroupId($id)
     {
@@ -123,7 +136,7 @@ class TDevice extends ModelHandler
     /**
      * 根据时间模板id查询设备
      * @param $id
-     * @return TDevice
+     * @return array
      * @throws \Exception
      */
     public static function findByTemplateId($id)
@@ -155,14 +168,30 @@ class TDevice extends ModelHandler
     /**
      * 根据设备编码查询设备
      * @param array $codes
+     * @param integer $status
      * @return TDevice
+     * @throws \Exception
      */
     public static function findByCodes($codes)
     {
+        $query["code"]['$in'] = $codes;
+
+        return parent::findAllByQuery($query);
+    }
+
+    /**
+     * 根据设备编码查询设备
+     * @param string $name
+     * @return TDevice
+     * @throws \Exception
+     */
+    public static function findByName($name)
+    {
         $query = array(
-            "code" => ['$in' => $codes],
-            "status" => DEVICE_STATUS_VALID,
+            "name" => new Regex('.*' . $name . '.*', 'i'),
         );
+
+        $option['projection'] = ["code" => 1, "id" => -1];
 
         return parent::findAllByQuery($query);
     }
@@ -183,26 +212,27 @@ class TDevice extends ModelHandler
 
         if (isset($data['status'])) {
             $query["status"] = $data['status'];
-        }
-        else{
+        } else {
             $query["status"] = DEVICE_STATUS_VALID;
         }
 
         if (isset($data['name'])) {
-            $query["name"] = new Regex('.*'.$data['name'].'.*', 'i');
-
+            $query["name"] = new Regex('.*' . $data['name'] . '.*', 'i');
         }
 
         if (isset($data['code'])) {
-            $query["code"] = new Regex('.*'.$data['code'].'.*', 'i');
-
+            $query["code"] = new Regex('.*' . $data['code'] . '.*', 'i');
         }
 
-        if(isset($data['field']) && isset($data['order'])){
+        if (isset($data['field']) && isset($data['order'])) {
             $option['sort'] = [$data['field'] => $data['order']];
         }
 
-        if(!empty($get_count)){
+        if (isset($data['projection'])) {
+            $option['projection'] = $data['projection'];
+        }
+
+        if (!empty($get_count)) {
             $option['limit'] = $get_count;
             $option['skip'] = $start_index;
         }
@@ -224,21 +254,21 @@ class TDevice extends ModelHandler
 
         if (isset($data['status'])) {
             $query["status"] = $data['status'];
-        }else{
+        } else {
             $query["status"] = DEVICE_STATUS_VALID;
         }
 
         if (isset($data['name'])) {
-            $query["name"] = new Regex('.*'.$data['name'].'.*', 'i');
+            $query["name"] = new Regex('.*' . $data['name'] . '.*', 'i');
 
         }
 
         if (isset($data['code'])) {
-            $query["code"] = new Regex('.*'.$data['code'].'.*', 'i');
+            $query["code"] = new Regex('.*' . $data['code'] . '.*', 'i');
 
         }
 
-        if(isset($data['field']) && isset($data['order'])){
+        if (isset($data['field']) && isset($data['order'])) {
             $option['sort'] = [$data['field'] => $data['order']];
         }
 
@@ -320,9 +350,9 @@ class TDevice extends ModelHandler
             }
         }
 
-        if ($isArray){
+        if ($isArray) {
             return $devices;
-        }else{
+        } else {
             return $devices[0];
         }
 

@@ -2,7 +2,7 @@
 
 use Phalcon\Mvc\Model\Metadata\Memory as MetaDataAdapter;
 use Phalcon\Mvc\View\Engine\Volt as VoltEngine;
-use SeetaAiBuildingCommunity\Common\Library\SeetaRedis;
+use SeetaAiBuildingCommunity\Common\Manager\RedisManager;
 
 
 /**
@@ -28,11 +28,11 @@ $di->setShared('db', function () {
 });
 
 /**
- * Redis connector
+ * Redis connectorRedisManager
  */
 $di->setShared('redis', function () {
     $config = $this->getConfig();
-    $redis = new SeetaRedis($config->redis->prefix.$config->redis->host.':'.$config->redis->port,$config->redis->password);
+    $redis = new RedisManager($config->redis->prefix.$config->redis->host.':'.$config->redis->port,$config->redis->password);
     return $redis;
 });
 
@@ -44,10 +44,6 @@ $di->setShared('logger', function () {
     $logger = new \Monolog\Logger($config->logger->name);
     $logger->pushHandler(new \Monolog\Handler\StreamHandler($config->logger->logger_path, \Monolog\Logger::WARNING));
 
-//    $connection = new MongoDB\Client($config->database->url);
-//
-//    $mongoHandler = new \Monolog\Handler\MongoDBHandler($connection, $config->database->dbname, $config->database->system_log_collection);
-//    $logger->pushHandler($mongoHandler);
     return $logger;
 });
 
@@ -60,32 +56,9 @@ $di->setShared('secure_logger', function () {
 
     $logger->pushHandler(new \Monolog\Handler\StreamHandler($config->logger->secure_logger_path, \Monolog\Logger::INFO));
 
-//    $connection = new MongoDB\Client($config->database->url);
-//
-//    $mongoHandler = new \Monolog\Handler\MongoDBHandler($connection, $config->database->dbname, $config->database->secure_log_collection);
-//    $logger->pushHandler($mongoHandler);
     return $logger;
 });
 
-/*
- * Email Configure
- * */
-$di->setShared('mailer', function (){
-    $config = $this->getConfig();
-    $mail = new PHPMailer\PHPMailer\PHPMailer(true);
-    $mail->SMTPDebug = 0;   //是否debug调试
-    $mail->isSMTP();
-    $mail->SMTPAuth=true;
-    $mail->Host = $config->mail->host;
-    $mail->Port = $config->mail->port;
-    $mail->Username = $config->mail->username;
-    $mail->Password = $config->mail->password;
-    $mail->SMTPSecure = 'ssl';
-    $mail->setFrom($config->mail->username, '智慧园区');
-    $mail->CharSet = "UTF-8";
-
-    return $mail;
-});
 
 /**
  * If the configuration specify the use of metadata adapter use it or use memory otherwise

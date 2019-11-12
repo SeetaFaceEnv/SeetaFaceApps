@@ -3,7 +3,9 @@
 namespace SeetaAiBuildingCommunity\Modules\Backend\Controllers;
 
 use SeetaAiBuildingCommunity\Common\Library\Gateway;
+use SeetaAiBuildingCommunity\Common\Manager\MqttManager;
 use SeetaAiBuildingCommunity\Common\Manager\Utility;
+use SeetaAiBuildingCommunity\Models\TAdmin;
 use SeetaAiBuildingCommunity\Models\TDevice;
 use SeetaAiBuildingCommunity\Models\TErrorLog;
 
@@ -14,38 +16,46 @@ class CallbackController extends ControllerBase
      * */
     public function deviceStatusAction()
     {
-        $callbackInfo = json_decode($this->request->getRawBody(),true);
+        $callbackInfo = json_decode($this->request->getRawBody(), true);
         $deviceCode = $callbackInfo["device_code"];
         $timestamp = $callbackInfo["timestamp"];
+
+        if (strlen($timestamp) == 10) {
+            $timestamp = $timestamp * 1000;
+        }
 
         try {
             $device = TDevice::findByCode($deviceCode);
             if (empty($device)) {
                 return parent::getResponse(parent::makeErrorResponse(ERR_DEVICE_NOT_EXIST));
             }
-        } catch (\Exception $exception) {
+            $admins = TAdmin::search([]);
+        } catch ( \Exception $exception ) {
             //数据库出错
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
         }
 
-        $msg = array(
-            "command" =>"device_status_change",
+        $msg = [
+            "command" => "device_status_change",
             "content" => [
                 "device_name" => $device->name,
                 "device_code" => $device->code,
                 "status_type" => "",
                 "time" => $timestamp,
             ]
-        );
+        ];
 
-        $log = array(
+        $log = [
             'device_code' => $device->code,
             'device_name' => $device->name,
             'level' => 1,
             'time' => $timestamp,
             'content' => "",
-        );
+        ];
+
+        //实例化消息管理类
+        $mqtt = new MqttManager();
 
         if (isset($callbackInfo["camera_status"])) {
             if ($callbackInfo["camera_status"] != true) {
@@ -55,9 +65,17 @@ class CallbackController extends ControllerBase
                 $msg['content']['status_type'] = DEVICE_CAMERA_VALID;
                 $log['content'] = "摄像头恢复正常";
             }
-            Gateway::sendToGroup("admin", json_encode($msg));
+
+            //获取管理员topic
+            foreach ($admins as $admin) {
+                $topic_id = "admin:topic_id:" . $admin['id'];
+                $mqtt->sendMsg($topic_id, json_encode($msg, JSON_UNESCAPED_UNICODE));
+            }
+
+            //记录日志
             $errorLog = new TErrorLog($log);
             $errorLog->save();
+
         }
 
         if (isset($callbackInfo["display_status"])) {
@@ -68,9 +86,17 @@ class CallbackController extends ControllerBase
                 $msg['content']['status_type'] = DEVICE_DISPLAY_VALID;
                 $log['content'] = "应用显示恢复正常";
             }
-            Gateway::sendToGroup("admin", json_encode($msg));
+
+            //获取管理员topic
+            foreach ($admins as $admin) {
+                $topic_id = "admin:topic_id:" . $admin['id'];
+                $mqtt->sendMsg($topic_id, json_encode($msg, JSON_UNESCAPED_UNICODE));
+            }
+
+            //记录日志
             $errorLog = new TErrorLog($log);
             $errorLog->save();
+
         }
 
         if (isset($callbackInfo["alive"])) {
@@ -81,9 +107,17 @@ class CallbackController extends ControllerBase
                 $msg['content']['status_type'] = DEVICE_ONLINE;
                 $log['content'] = "设备恢复在线";
             }
-            Gateway::sendToGroup("admin", json_encode($msg));
+
+            //获取管理员topic
+            foreach ($admins as $admin) {
+                $topic_id = "admin:topic_id:" . $admin['id'];
+                $mqtt->sendMsg($topic_id, json_encode($msg, JSON_UNESCAPED_UNICODE));
+            }
+
+            //记录日志
             $errorLog = new TErrorLog($log);
             $errorLog->save();
+
         }
 
         return parent::getResponse(array(
@@ -96,11 +130,15 @@ class CallbackController extends ControllerBase
      * */
     public function registerImageAction()
     {
-        $callbackInfo = json_decode($this->request->getRawBody(),true);
+        $callbackInfo = json_decode($this->request->getRawBody(), true);
         $deviceCode = $callbackInfo["device_code"];
         $imageId = $callbackInfo["image_id"];
         $data = $callbackInfo["data"];
         $timestamp = $callbackInfo["timestamp"];
+
+        if (strlen($timestamp) == 10) {
+            $timestamp = $timestamp * 1000;
+        }
 
         try {
             //设备
@@ -108,25 +146,25 @@ class CallbackController extends ControllerBase
             if (empty($device)) {
                 return parent::getResponse(parent::makeErrorResponse(ERR_DEVICE_NOT_EXIST));
             }
-        } catch (\Exception $exception) {
+        } catch ( \Exception $exception ) {
             //数据库出错
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
         }
 
-        Utility::log('logger', "照片注册错误，设备编码：".$device->code ."，照片：".$imageId."，原因：".$data, __METHOD__, __LINE__);
+        Utility::log('logger', "照片注册错误，设备编码：" . $device->code . "，照片：" . $imageId . "，原因：" . $data, __METHOD__, __LINE__);
 
         $log = new TErrorLog([
             'device_code' => $device->code,
             'device_name' => $device->name,
             'level' => 1,
             'time' => $timestamp,
-            'content' => $imageId.$data,
+            'content' => $imageId . $data,
         ]);
 
         try {
             $log->save();
-        } catch (\Exception $exception) {
+        } catch ( \Exception $exception ) {
             //数据库出错
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
@@ -142,15 +180,22 @@ class CallbackController extends ControllerBase
      * */
     public function logAction()
     {
-        $callbackInfo = json_decode($this->request->getRawBody(),true);
+        $callbackInfo = json_decode($this->request->getRawBody(), true);
         $deviceCode = $callbackInfo["device_code"];
         $level = $callbackInfo["level"];
         $log = $callbackInfo["log"];
         $timestamp = $callbackInfo["timestamp"];
 
+        if (strlen($timestamp) == 10) {
+            $timestamp = $timestamp * 1000;
+        }
+
         try {
             $device = TDevice::findByCode($deviceCode);
-        } catch (\Exception $exception) {
+            if (empty($device)) {
+                return parent::getResponse(parent::makeErrorResponse(ERR_DEVICE_NOT_EXIST));
+            }
+        } catch ( \Exception $exception ) {
             //数据库出错
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
@@ -166,7 +211,7 @@ class CallbackController extends ControllerBase
 
         try {
             $errorLog->save();
-        } catch (\Exception $exception) {
+        } catch ( \Exception $exception ) {
             //数据库出错
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));

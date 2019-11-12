@@ -33,21 +33,21 @@ class MemberController extends ControllerBase
             return parent::getResponse(parent::makeErrorResponse(ERR_FILE_UPLOAD_WRONG));
         }
 
-        if (empty($deviceIds) && empty($groupIds) && empty($attributes) && $imageNum<1) {
+        if (empty($deviceIds) && empty($groupIds) && empty($attributes) && $imageNum < 1) {
             return parent::getResponse(parent::makeErrorResponse(ERR_MEMBER_INFO_NOT_EXIST));
         }
 
         //字段信息，和照片信息不可以都为空
-        try{
+        try {
             $fields = TField::search([]);
             $system = TSystem::findSystem();
-        } catch (\Exception $exception) {
+        } catch ( \Exception $exception ) {
             //数据库出错
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
         }
 
-        if (empty($fields) && $imageNum<1) {
+        if (empty($fields) && $imageNum < 1) {
             return parent::getResponse(parent::makeErrorResponse(ERR_MEMBER_FIELD_AND_IMAGE_NOT_EXIST));
         }
 
@@ -60,13 +60,13 @@ class MemberController extends ControllerBase
         //添加人员照片
         $imageInfo = [];
         $dir = FILE_PATH_MEMBER_IMAGE . "/" . date("Y-M-d_H-i-s") . "/";
-        for ($i=1; $i<=$imageNum; $i++) {
+        for ($i = 1; $i <= $imageNum; $i++) {
             $uploadFileName = "image" . $i;
             $filename = "";
             try {
                 $fullPath = $this->uploadFile($dir, $uploadFileName, $filename);
-                $image_url = Utility::imagePathToDownloadUrl($system->server_url, $fullPath);
-            } catch (\Exception $exception) {
+                $image_url = Utility::filePathToDownloadUrl($system->server_url, $fullPath);
+            } catch ( \Exception $exception ) {
                 Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
                 return parent::getResponse(parent::makeErrorResponse(ERR_FILE_UPLOAD_WRONG));
             }
@@ -85,13 +85,13 @@ class MemberController extends ControllerBase
             "status" => MEMBER_STATUS_VALID,
         ]);
 
-        try{
+        try {
             $member->save();
             foreach ($deviceIds as $key => $deviceId) {
                 $deviceIds[$key] = new ObjectId($deviceId);
             }
             $devices = TDevice::findByIds($deviceIds);
-        } catch (\Exception $exception) {
+        } catch ( \Exception $exception ) {
             //数据库出错
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
@@ -105,11 +105,11 @@ class MemberController extends ControllerBase
         //人员动态字段
         $fieldIds = [];
         foreach ($attributes as $fieldId => $fieldValue) {
-            $fieldIds[]= new ObjectId($fieldId);
+            $fieldIds[] = new ObjectId($fieldId);
         }
-        try{
+        try {
             $fields = TField::findByIds($fieldIds);
-        } catch (\Exception $exception) {
+        } catch ( \Exception $exception ) {
             //数据库出错
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
@@ -121,6 +121,14 @@ class MemberController extends ControllerBase
                 if ($fieldId == (string)$field->id) {
                     $postAttributes[$field->name] = $fieldValue;
                 }
+                //设置硬件显示字段
+                if (!empty($system->show_field)) {
+                    foreach ($system->show_field as $value) {
+                        if ($value == (string)$field->id) {
+                            $subtitle_pattern = "<" . $field->name . ">";
+                        }
+                    }
+                }
             }
         }
 
@@ -130,21 +138,25 @@ class MemberController extends ControllerBase
         $postData['group_ids'] = $groupIds;
         $postData['device_codes'] = $deviceCodes;
         $postData['attributes'] = (object)$postAttributes;
+        if (!empty($subtitle_pattern)) {
+            $postData['subtitle_pattern'] = [$subtitle_pattern];
+        }
         if (!empty($imageInfo)) {
             $postData['portrait_image'] = $imageInfo[0]['image_url'];
         }
 
-        $result = SeetaDeviceManager::sendRequest(SYSEND_MEMBER_ADD_URL, $postData);
-        if (!is_array($result)) {
+        $seetaDeviceManager = new SeetaDeviceManager(SeetaDeviceManager::SYSEND_MEMBER_ADD_URL, $postData);
+        $result = $seetaDeviceManager->sendRequest("POST");
+        if ($result["res"] != ERR_SUCCESS) {
             //同步失败，删除本地数据
-            try{
+            try {
                 TMember::falseDeleteById($member->_id);
-            } catch (\Exception $exception) {
+            } catch ( \Exception $exception ) {
                 //数据库出错
                 Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
                 return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
             }
-            return parent::getResponse(parent::makeErrorResponse($result));
+            return parent::getResponse(parent::makeErrorResponse($result["res"]));
         }
 
         foreach ($imageInfo as $image) {
@@ -153,9 +165,11 @@ class MemberController extends ControllerBase
             $imageData['person_id'] = $memberId;
             $imageData['image_url'] = $image['image_url'];
 
-            $result = SeetaDeviceManager::sendRequest(SYSEND_MEMBER_ADD_IMAGE_URL, $imageData);
-            if (!is_array($result)) {
-                return parent::getResponse(parent::makeErrorResponse($result));
+            $seetaDeviceManager->setUrl(SeetaDeviceManager::SYSEND_MEMBER_ADD_IMAGE_URL);
+            $seetaDeviceManager->setParams($imageData);
+            $result = $seetaDeviceManager->sendRequest("POST");
+            if ($result['res'] != ERR_SUCCESS) {
+                return parent::getResponse(parent::makeErrorResponse($result['res']));
             }
 
             //本地保存人员照片
@@ -167,7 +181,7 @@ class MemberController extends ControllerBase
             ]);
             try {
                 $image->save();
-            } catch (\Exception $exception) {
+            } catch ( \Exception $exception ) {
                 //数据库出错
                 Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
                 return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
@@ -185,14 +199,12 @@ class MemberController extends ControllerBase
     public function editAction()
     {
         $sessionId = $this->request->getPost("session_id");
-
         $id = $this->request->getPost("id");
         $deviceIds = json_decode($this->request->getPost("device_ids")) ?: [];
         $groupIds = json_decode($this->request->getPost("group_ids")) ?: [];
         $delImageIds = json_decode($this->request->getPost("del_image_ids"));
         $attributes = json_decode($this->request->getPost("attributes")) ?: [];
         $imageNum = count($this->request->getUploadedFiles());
-
         if (empty($sessionId) || empty($id)) {
             return parent::getResponse(parent::makeErrorResponse(ERR_PARAM_WRONG));
         }
@@ -204,48 +216,55 @@ class MemberController extends ControllerBase
         }
 
         //新增人员照片
-        try{
+        try {
             $system = TSystem::findSystem();
-        } catch (\Exception $exception) {
+        } catch ( \Exception $exception ) {
             //数据库出错
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
         }
 
         $dir = FILE_PATH_MEMBER_IMAGE . "/" . date("Y-M-d_H-i-s") . "/";
-        for ($i=1; $i<=$imageNum; $i++) {
-            $uploadFileName = "image" . $i;
-            $filename = "";
-            try {
-                $fullPath = $this->uploadFile($dir, $uploadFileName, $filename);
-                $image_url = Utility::imagePathToDownloadUrl($system->server_url, $fullPath);
-            } catch (\Exception $exception) {
-                Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
-                return parent::getResponse(parent::makeErrorResponse(ERR_FILE_UPLOAD_WRONG));
-            }
 
-            //请求设备管理平台，添加人员照片
-            $imageData = [];
-            $imageData['person_id'] = $id;
-            $imageData['image_url'] = $image_url;
+        $seetaDeviceManager = new SeetaDeviceManager();
 
-            $result = SeetaDeviceManager::sendRequest(SYSEND_MEMBER_ADD_IMAGE_URL, $imageData);
-            if (!is_array($result)) {
-                return parent::getResponse(parent::makeErrorResponse($result));
-            }
+        if ($imageNum >= 1) {
+            for ($i = 1; $i <= $imageNum; $i++) {
+                $uploadFileName = "image" . $i;
+                $filename = "";
+                try {
+                    $fullPath = $this->uploadFile($dir, $uploadFileName, $filename);
+                    $imageUrl = Utility::filePathToDownloadUrl($system->server_url, $fullPath);
+                } catch ( \Exception $exception ) {
+                    Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
+                    return parent::getResponse(parent::makeErrorResponse(ERR_FILE_UPLOAD_WRONG));
+                }
 
-            $image = new TMemberImage([
-                "member_id" => $id,
-                "image_id" => $result['image_id'],
-                "image_path" => $fullPath,
-                "status" => MEMBER_IMAGE_STATUS_VALID,
-            ]);
-            try{
-                $image->save();
-            } catch (\Exception $exception) {
-                //数据库出错
-                Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
-                return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
+                //请求设备管理平台，添加人员照片
+                $imageData = [];
+                $imageData['person_id'] = $id;
+                $imageData['image_url'] = $imageUrl;
+
+                $seetaDeviceManager->setUrl(SeetaDeviceManager::SYSEND_MEMBER_ADD_IMAGE_URL);
+                $seetaDeviceManager->setParams($imageData);
+                $result = $seetaDeviceManager->sendRequest("POST");
+                if ($result['res'] != ERR_SUCCESS) {
+                    return parent::getResponse(parent::makeErrorResponse($result['res']));
+                }
+
+                $image = new TMemberImage([
+                    "member_id" => $id,
+                    "image_id" => $result['image_id'],
+                    "image_path" => $fullPath,
+                    "status" => MEMBER_IMAGE_STATUS_VALID,
+                ]);
+                try {
+                    $image->save();
+                } catch ( \Exception $exception ) {
+                    //数据库出错
+                    Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
+                    return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
+                }
             }
         }
 
@@ -255,14 +274,17 @@ class MemberController extends ControllerBase
             $delImageData['person_id'] = $id;
             $delImageData['image_id'] = $imageId;
 
-            $result = SeetaDeviceManager::sendRequest(SYSEND_MEMBER_DELETE_IMAGE_URL, $delImageData);
-            if (!is_array($result)) {
-                return parent::getResponse(parent::makeErrorResponse($result));
+            $seetaDeviceManager->setUrl(SeetaDeviceManager::SYSEND_MEMBER_DELETE_IMAGE_URL);
+            $seetaDeviceManager->setParams($delImageData);
+            $result = $seetaDeviceManager->sendRequest("POST");
+            if ($result['res'] != ERR_SUCCESS) {
+                return parent::getResponse(parent::makeErrorResponse($result['res']));
             }
-            try{
+
+            try {
                 //假删除本地数据
                 TMemberImage::falseDeleteByImageId($imageId);
-            } catch (\Exception $exception) {
+            } catch ( \Exception $exception ) {
                 //数据库出错
                 Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
                 return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
@@ -274,7 +296,7 @@ class MemberController extends ControllerBase
             if (empty($member)) {
                 return parent::getResponse(parent::makeErrorResponse(ERR_MEMBER_NOT_EXIST));
             }
-        } catch (\Exception $exception) {
+        } catch ( \Exception $exception ) {
             //数据库出错
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
@@ -290,7 +312,7 @@ class MemberController extends ControllerBase
 
             try {
                 $devices = TDevice::findByIds($deviceObjectIds);
-            } catch (\Exception $exception) {
+            } catch ( \Exception $exception ) {
                 //数据库出错
                 Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
                 return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
@@ -316,7 +338,7 @@ class MemberController extends ControllerBase
             }
             try {
                 $fields = TField::findByIds($fieldIds);
-            } catch (\Exception $exception) {
+            } catch ( \Exception $exception ) {
                 //数据库出错
                 Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
                 return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
@@ -329,45 +351,45 @@ class MemberController extends ControllerBase
                         $postAttributes[$field->name] = $fieldValue;
                     }
                 }
+                $postData['attributes'] = (object)$postAttributes;
             }
-
-            $postData['attributes'] = (object)$postAttributes;
         }
 
         // 人员照片变动,更改人员头像
         if (!empty($imageNum) || $delImageIds) {
             try {
                 $memberImages = TMemberImage::findByMemberId($id);
-                $system = TSystem::findSystem();
-            } catch (\Exception $exception) {
+            } catch ( \Exception $exception ) {
                 //数据库出错
                 Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
                 return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
             }
-
             $portrait_image = "";
             if (!empty($memberImages)) {
-                $portrait_image = Utility::imagePathToDownloadUrl($system->server_url,$memberImages[0]->image_path);
+                $portrait_image = Utility::filePathToDownloadUrl($system->server_url, $memberImages[0]->image_path);
             }
             $postData['portrait_image'] = $portrait_image;
         }
 
+
         //请求设备管理平台，编辑人员
-        if(!empty($postData)){
+        if (!empty($postData)) {
             $postData['person_id'] = $id;
 
-            $result = SeetaDeviceManager::sendRequest(SYSEND_MEMBER_EDIT_URL, $postData);
-            if (!is_array($result)) {
-                return parent::getResponse(parent::makeErrorResponse($result));
+            $seetaDeviceManager->setUrl(SeetaDeviceManager::SYSEND_MEMBER_EDIT_URL);
+            $seetaDeviceManager->setParams($postData);
+            $result = $seetaDeviceManager->sendRequest("POST");
+            if ($result['res'] != ERR_SUCCESS) {
+                return parent::getResponse(parent::makeErrorResponse($result['res']));
             }
 
             //本地保存数据
-            try{
+            try {
                 $member->group_ids = $groupIds;
                 $member->device_ids = $deviceIds;
                 $member->attributes = $attributes;
                 $member->save();
-            } catch (\Exception $exception) {
+            } catch ( \Exception $exception ) {
                 //数据库出错
                 Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
                 return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
@@ -403,7 +425,7 @@ class MemberController extends ControllerBase
             if (empty($member)) {
                 return parent::getResponse(parent::makeErrorResponse(ERR_MEMBER_NOT_EXIST));
             }
-        } catch (\Exception $exception) {
+        } catch ( \Exception $exception ) {
             //数据库出错
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
@@ -439,22 +461,26 @@ class MemberController extends ControllerBase
             if (empty($member)) {
                 return parent::getResponse(parent::makeErrorResponse(ERR_MEMBER_NOT_EXIST));
             }
-        } catch (\Exception $exception) {
+        } catch ( \Exception $exception ) {
             //数据库出错
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
         }
 
         //请求设备管理平台，删除人员
+        $postData = [];
         $postData['person_id'] = (string)$member->_id;
-        $result = SeetaDeviceManager::sendRequest(SYSEND_MEMBER_DELETE_URL, $postData);
-        if (!is_array($result)) {
-            return parent::getResponse(parent::makeErrorResponse($result));
+
+        $seetaDeviceManager = new SeetaDeviceManager(SeetaDeviceManager::SYSEND_MEMBER_DELETE_URL,$postData);
+        $result = $seetaDeviceManager->sendRequest("POST");
+        if ($result['res'] != ERR_SUCCESS) {
+            return parent::getResponse(parent::makeErrorResponse($result['res']));
         }
+
         try {
             //假删除
             TMember::falseDeleteById(new ObjectId($id));
-        } catch (\Exception $exception) {
+        } catch ( \Exception $exception ) {
             //数据库出错
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
@@ -474,6 +500,7 @@ class MemberController extends ControllerBase
 
         $startIndex = $this->request->getPost("start_index");
         $getCount = $this->request->getPost("get_count");
+        $field = $this->request->getPost("field");
 
         if (empty($sessionId)) {
             return parent::getResponse(parent::makeErrorResponse(ERR_PARAM_WRONG));
@@ -484,18 +511,22 @@ class MemberController extends ControllerBase
         if ($result != ERR_SUCCESS) {
             return parent::getResponse(parent::makeErrorResponse($result));
         }
-
-        $data=[];
+        $data = [];
+        $field = json_decode($field, true);
+        if (!empty($field)) {
+            if (is_array($field)) {
+                $data["attributes"] = $field;
+            }
+        }
         $data['field'] = "_id";
         $data['order'] = -1;
-
         try {
             $members = TMember::search($data, (int)$startIndex, (int)$getCount);
             $count = TMember::searchCount($data);
 
             //添加人员更多信息
             $members = TMember::addMoreInfo($members);
-        } catch (\Exception $exception) {
+        } catch ( \Exception $exception ) {
             //数据库出错
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
@@ -504,7 +535,7 @@ class MemberController extends ControllerBase
         return parent::getResponse(array(
             CODE => ERR_SUCCESS,
             "members" => $members,
-            "total" => $count,
+            "total" => $count
         ));
     }
 }

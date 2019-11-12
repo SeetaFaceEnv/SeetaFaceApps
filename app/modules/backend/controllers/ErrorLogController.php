@@ -3,6 +3,7 @@
 namespace SeetaAiBuildingCommunity\Modules\Backend\Controllers;
 
 use SeetaAiBuildingCommunity\Common\Manager\Utility;
+use SeetaAiBuildingCommunity\Models\TDevice;
 use SeetaAiBuildingCommunity\Models\TErrorLog;
 
 class ErrorLogController extends ControllerBase
@@ -16,7 +17,7 @@ class ErrorLogController extends ControllerBase
 
         $startIndex = $this->request->getPost("start_index");
         $getCount = $this->request->getPost("get_count");
-        $deviceCode = $this->request->getPost("device_code");
+        $deviceName = $this->request->getPost("device_name");
         $timeBegin = $this->request->getPost("time_begin");
         $timeEnd = $this->request->getPost("time_end");
 
@@ -31,14 +32,37 @@ class ErrorLogController extends ControllerBase
         }
 
         $data = [];
-        if (!empty($deviceCode)) {
-            $data['device_code'] = $deviceCode;
+
+        //模糊搜索设备名称
+        if (!empty($deviceName)) {
+            try {
+                $devices = TDevice::findByName($deviceName);
+            } catch ( \Exception $exception ) {
+                //数据库出错
+                Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
+                return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
+            }
+
+            if (empty($devices)) {
+                return parent::getResponse(array(
+                    CODE => ERR_SUCCESS,
+                    "error_logs" => [],
+                    "total" => 0,
+                ));
+            }
+
+            $deviceCodes = [];
+            foreach ($devices as $device) {
+                $deviceCodes[] = $device['code'];
+            }
+            $data['device_code']['$in'] = $deviceCodes;
         }
+
         if (!empty($timeBegin)) {
             $data['time_begin'] = (int)$timeBegin;
         }
         if (!empty($timeEnd)) {
-            $data['time_end'] = (int)$timeEnd + 86400;
+            $data['time_end'] = (int)$timeEnd + 86400000;
         }
 
         $data['field'] = "_id";
@@ -46,8 +70,10 @@ class ErrorLogController extends ControllerBase
 
         try {
             $errorLogs = TErrorLog::search($data, (int)$startIndex, (int)$getCount);
+            $errorLogs = TErrorLog::addMoreInfo($errorLogs);
+
             $count = TErrorLog::searchCount($data);
-        } catch (\Exception $exception) {
+        } catch ( \Exception $exception ) {
             //数据库出错
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));

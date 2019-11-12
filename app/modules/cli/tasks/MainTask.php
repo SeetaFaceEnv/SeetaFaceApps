@@ -13,6 +13,9 @@ class MainTask extends \Phalcon\Cli\Task
         echo "Congratulations! You are now flying with Phalcon CLI!";
     }
 
+    /*
+     * 创建管理员账号脚本
+     * */
     public function createAdminAction()
     {
         try {

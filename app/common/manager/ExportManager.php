@@ -4,30 +4,23 @@ namespace SeetaAiBuildingCommunity\Common\Manager;
 
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
-use SeetaAiBuildingCommunity\Common\InterfaceDir\ExportStrategyInterface;
-use SeetaAiBuildingCommunity\Modules\Backend\Controllers\export\StaffRecordExportStrategy;
+use PhpOffice\PhpSpreadsheet\Cell\DataType;
+
 
 class ExportManager
 {
-    const EXPORT_STAFF_INFO = 1;
-
-    /**
-     * 引擎类型
-     * @var string
-     * */
-    private $type;
-
     /**
      * 需导出的数据
      * @var array
      * */
-    private $data;
+    public $data;
+
 
     /**
-     * ZIP文件名
-     * @var string
+     * 导出title
+     * @var array
      * */
-    private $zipFileName;
+    private $titles;
 
     /**
      * excel文件名
@@ -35,11 +28,6 @@ class ExportManager
      * */
     private $excelFileName;
 
-    /**
-     * ZIP全路径
-     * @var string
-     * */
-    private $dirZip;
 
     /**
      * excel全路径
@@ -47,103 +35,107 @@ class ExportManager
      * */
     private $dirExcel;
 
-    /**
-     * @var ExportStrategyInterface strategy
-     * */
-
-    private $strategy;
 
     /**
-     *构造函数，响应导出类型和数据
-     *
-     * @param string $type
-     * @param string $zipFileName
+     * 构造函数，响应导出类型和数据
      * @param string $excelFileName
-     * @param array $data
      */
-    public function __construct($type, $excelFileName, $data, $zipFileName)
+    public function __construct($excelFileName)
     {
-        $this->data = $data;
-        $this->type = $type;
-        $this->zipFileName = $zipFileName;
         $this->excelFileName = $excelFileName;
-        $this->dirZip = EXPORT_FILE_PATH . $this->zipFileName;
-        $this->dirExcel = EXPORT_FILE_PATH . $this->excelFileName;
-
-        switch ($type){
-            case self::EXPORT_STAFF_INFO:
-                $this->strategy = new StaffRecordExportStrategy();
-                break;
-        }
-
+        $this->dirExcel = FILE_ROOT_PATH;
     }
 
+
     /**
-     * 导出为zip格式
+     * 导出为excel格式
      * @throws \Exception
      * @throws \PhpOffice\PhpSpreadsheet\Exception
      * @throws \PhpOffice\PhpSpreadsheet\Writer\Exception
      */
-    public function export(){
-
-        //假如导出目录不存在，则创建目录
-        if (!file_exists(EXPORT_FILE_PATH)) {
-            mkdir(EXPORT_FILE_PATH, 0777, true);
-        }
-
-        //制作压缩包
-        $zip = new \ZipArchive();
-        if ($zip->open ($this->dirZip ,\ZipArchive::OVERWRITE) !== true) {
-            if($zip->open ($this->dirZip ,\ZipArchive::CREATE) !== true){   // 文件不存在则生成一个新的文件 用CREATE打开文件会追加内容至zip
-                throw new \Exception('ZIP 创建失败');
-            }
-        }
-        $zip->addEmptyDir("images"); //生成图片文件夹
+    public function exportMemberRecordExcel()
+    {
 
         //生成excel文件
-        $spreadsheet = new Spreadsheet();
-        $spreadsheet->getProperties()
-            ->setCreator('Seetacloud');
+        try {
+            $spreadsheet = new Spreadsheet();
+            $spreadsheet->getProperties()
+                ->setCreator('SeetaFaceEnv')
+                ->setTitle('PassRecord')
+                ->setSubject('PassRecord')
+                ->setDescription('PassRecord');
 
-        $spreadsheet->setActiveSheetIndex(0);
-        $sheet = $spreadsheet->getActiveSheet();
+            /* $spreadsheet->setActiveSheetIndex(0);*/
 
-        $this->strategy->exportZip($sheet, $zip, $this->data);
+            $sheet = $spreadsheet->getActiveSheet();
+        } catch ( \Exception $e ) {
+            echo $e->getMessage();
+            return;
+        }
+
+
+        $titles = array_values($this->titles);
+        //设置第一行为粗体
+        $sheet->getStyle('1')->getFont()->setBold(true);
+        $sheet->getRowDimension('1')->setRowHeight(18);
+
+        foreach ($titles as $key => $title) {
+            $col = $key + 1;
+            $sheet->setCellValueExplicitByColumnAndRow($col, 1, $title, DataType::TYPE_STRING);
+        }
+
+        $sheet->getDefaultColumnDimension()->setWidth(12);
+        $sheet->getColumnDimension('B')->setWidth(20);
+        $sheet->getColumnDimension('D')->setWidth(9);
+        $sheet->getColumnDimension('E')->setWidth(9);
+        $sheet->getColumnDimension('G')->setWidth(22);
+
+        foreach ($this->data as $num => $rows) {
+            $rowNumber = $num + 2;
+
+            foreach (array_values($rows) as $key => $row) {
+                $i = $key + 1;
+                $sheet->setCellValueExplicitByColumnAndRow($i, $rowNumber, $row, DataType::TYPE_STRING);
+            }
+        }
+
+        $date = date('Y-m-d_H-i');
+        $ExcelName = $this->excelFileName . "_" . $date . ".Xlsx";
+        $fileName = $this->dirExcel . "/" . $ExcelName;
+
 
         $writer = new Xlsx($spreadsheet);
-
         //存储excel文件
-        $writer->save($this->dirExcel);
+        $writer->save($fileName);
 
-        //将excel添加至压缩包
-        $zip->addFile($this->dirExcel, $this->excelFileName);
-
-        //完成压缩包
-        $zip->close ();
 
         //传输压缩包
-        $fp=fopen($this->dirZip,"r");
-        $file_size=filesize($this->dirZip);
+        $fp = fopen($fileName, "r");
+        $file_size = filesize($fileName);
 
-        Header("Content-type: application/zip");
-        Header("Accept-Ranges: bytes");
-        Header("Accept-Length:".$file_size);
-        Header("Content-Disposition: attachment; filename=".$this->zipFileName);
 
-        Header("Access-Control-Allow-Origin:*");
-        Header('Access-Control-Allow-Methods:GET, POST, PATCH, PUT, OPTIONS');
-        Header("Access-Control-Allow-Headers:x-requested-with,content-type");
-        $buffer=1024;
-        $file_count=0;
+        ob_clean();
+        header("Access-Control-Expose-Headers:Filename");
+        header("Content-Type:application/octet-stream");
+        header("Accept-Ranges: bytes");
+        header("Accept-Length:" . $file_size);
+        header("Content-Disposition: attachment; filename=" . $ExcelName);
+        header("Filename: " . $ExcelName);
+        header("Access-Control-Allow-Origin:*");
+        header('Access-Control-Allow-Methods:GET, POST, PATCH, PUT, OPTIONS');
+        header("Access-Control-Allow-Headers:x-requested-with,content-type");
 
-        while(!feof($fp) && $file_count<$file_size){
-            $file_con=fread($fp,$buffer);
-            $file_count+=$buffer;
+        $buffer = 1024;
+        $file_count = 0;
+
+        while (!feof($fp) && $file_count < $file_size) {
+            $file_con = fread($fp, $buffer);
+            $file_count += $buffer;
             echo $file_con;
         }
         fclose($fp);
-        unlink($this->dirExcel);
-        unlink($this->dirZip);
+        unlink($fileName);
+        exit;
     }
 
     /**
@@ -152,49 +144,110 @@ class ExportManager
      * @throws \PhpOffice\PhpSpreadsheet\Exception
      * @throws \PhpOffice\PhpSpreadsheet\Writer\Exception
      */
-    public function exportExcel(){
-
+    public function statisticsRecordRecordExcel()
+    {
         //假如导出目录不存在，则创建目录
-        if (!file_exists(EXPORT_FILE_PATH)) {
-            mkdir(EXPORT_FILE_PATH, 0777, true);
+        if (!file_exists(FILE_ROOT_PATH)) {
+            mkdir(FILE_ROOT_PATH, 0777, true);
         }
+
 
         //生成excel文件
-        $spreadsheet = new Spreadsheet();
-        $spreadsheet->getProperties()
-            ->setCreator('Park');
+        try {
+            $spreadsheet = new Spreadsheet();
+            $spreadsheet->getProperties()
+                ->setCreator('SeetaFaceEnv')
+                ->setTitle('statisticsRecord')
+                ->setSubject('statisticsRecord')
+                ->setDescription('statisticsRecord');
 
-        $spreadsheet->setActiveSheetIndex(0);
-        $sheet = $spreadsheet->getActiveSheet();
+            $spreadsheet->setActiveSheetIndex(0);
+            $sheet = $spreadsheet->getActiveSheet();
+        } catch ( \Exception $e ) {
+            echo $e->getMessage();
+        }
 
-        $this->strategy->exportExcel($sheet, $this->data);
+        $titles = $this->titles;
+        //设置第一行为粗体
+        $sheet->getStyle('1')->getFont()->setBold(true);
+        $sheet->getRowDimension('1')->setRowHeight(18);
 
-        $writer = new xlsx($spreadsheet);
+        foreach ($titles as $key => $title) {
+            $col = $key + 1;
+            $sheet->setCellValueExplicitByColumnAndRow($col, 1, $title, DataType::TYPE_STRING);
+        }
+
+        $col_tmp = count($this->titles);
+        // 获取列数并设置为自动宽度
+        for ($i = 1; $i <= $col_tmp; $i++) {
+            $sheet->getColumnDimensionByColumn($i)->setAutoSize(true);
+        }
+
+
+        foreach ($this->data as $num => $rows) {
+            $rowNumber = $num + 2;
+            $j = 1;
+            foreach ($rows as $key => $row) {
+                $sheet->setCellValueExplicitByColumnAndRow($j, $rowNumber, $row, DataType::TYPE_STRING);
+                $j++;
+            }
+        }
+        $writer = new Xlsx($spreadsheet);
+
+
+        $date = date('Y-m-d_H-i');
+        $ExcelName = $this->excelFileName . "_" . $date . ".Xlsx";
+        $fileName = $this->dirExcel . "/" . $ExcelName;
 
         //存储excel文件
-        $writer->save($this->dirExcel);
+        $writer->save($fileName);
+
 
         //传输压缩包
-        $fp=fopen($this->dirExcel,"r");
-        $file_size=filesize($this->dirExcel);
+        $fp = fopen($fileName, "r");
+        $file_size = filesize($fileName);
+        header("Access-Control-Expose-Headers:Filename");
+        header("Content-Type:application/octet-stream");
+        header("Accept-Ranges:bytes");
+        header("Accept-Length:" . $file_size);
+        header("Content-Disposition: attachment; filename=" . $ExcelName);
+        header("Filename: " . $ExcelName);
+        header("Access-Control-Allow-Origin:*");
+        header('Access-Control-Allow-Methods:GET, POST, PATCH, PUT, OPTIONS');
+        header("Access-Control-Allow-Headers:x-requested-with,content-type");
+        $buffer = 1024;
+        $file_count = 0;
 
-        Header("Content-type: application/vnd.ms-excel");
-        Header("Accept-Ranges: bytes");
-        Header("Accept-Length:".$file_size);
-        Header("Content-Disposition: attachment; filename=".$this->excelFileName);
-
-        Header("Access-Control-Allow-Origin: *");
-        Header('Access-Control-Allow-Methods: POST');
-        Header("Access-Control-Allow-Headers: x-requested-with,content-type");
-        $buffer=1024;
-        $file_count=0;
-
-        while(!feof($fp) && $file_count<$file_size){
-            $file_con=fread($fp,$buffer);
-            $file_count+=$buffer;
+        while (!feof($fp) && $file_count < $file_size) {
+            $file_con = fread($fp, $buffer);
+            $file_count += $buffer;
             echo $file_con;
         }
+
         fclose($fp);
-        unlink($this->dirExcel);
+        unlink($fileName);
+
+        exit;
+    }
+
+    /**
+     * 设置表格的表头
+     * @param array $data
+     * @return array
+     */
+    public function seTitle($data)
+    {
+        if (empty($data)) {
+            $data['A'] = "设备名称";
+            $data['B'] = "设备编码";
+            $data['C'] = "人员信息";
+            $data['D'] = "流名称";
+            $data['E'] = "相似度";
+            $data['F'] = "是否通过";
+            $data['G'] = "通行时间";
+        }
+
+        $this->titles = $data;
+        return $this->titles;
     }
 }

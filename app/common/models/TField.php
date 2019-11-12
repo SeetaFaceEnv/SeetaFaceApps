@@ -32,7 +32,7 @@ class TField extends ModelHandler
     /**
      * 根据字段名称查询
      * @param string $name
-     * @return TStream
+     * @return array
      * @throws \Exception
      */
     public static function findByFieldName($name)

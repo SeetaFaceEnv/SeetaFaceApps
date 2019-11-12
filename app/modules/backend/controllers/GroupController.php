@@ -56,8 +56,13 @@ class GroupController extends ControllerBase
         $postData = [];
         $postData['group_id'] = (string)$group->_id;
 
-        $result = SeetaDeviceManager::sendRequest(SYSEND_SYSTEM_CREATE_GROUP_URL, $postData);
-        if (!is_array($result)) {
+        $seetaDeviceManager = new SeetaDeviceManager(SeetaDeviceManager::SYSEND_SYSTEM_CREATE_GROUP_URL, $postData);
+        $result = $seetaDeviceManager->sendRequest("POST");
+        if ($result['res'] != ERR_SUCCESS) {
+            return parent::getResponse(parent::makeErrorResponse($result['res']));
+        }
+
+        if ($result["res"] != ERR_SUCCESS) {
             //同步失败，删除本地数据
             try {
                 //假删除
@@ -65,10 +70,8 @@ class GroupController extends ControllerBase
             } catch (\Exception $exception) {
                 //数据库出错
                 Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
-                return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
             }
-
-            return parent::getResponse(parent::makeErrorResponse($result));
+            die;
         }
 
         //向设备管理平台请求同步数据
@@ -76,10 +79,8 @@ class GroupController extends ControllerBase
         $postData['group_ids'] = [(string)$group->_id];
         $postData['device_params'] = $deviceParams;
 
-        $result = SeetaDeviceManager::sendRequest(SYSEND_SET_DEFAULT_GROUP_URL, $postData);
-        if (!is_array($result)) {
-            return parent::getResponse(parent::makeErrorResponse($result));
-        }
+        $seetaDeviceManager = new SeetaDeviceManager();
+        $seetaDeviceManager->setGroupParams([(string)$group->_id], $deviceParams);
 
         return parent::getResponse(array(
             CODE => ERR_SUCCESS,
@@ -118,19 +119,29 @@ class GroupController extends ControllerBase
             return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
         }
 
+        try {
+            $group->name = $name;
+            $group->save();
+        } catch (\Exception $exception) {
+            //数据库出错
+            Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
+            return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
+        }
+
+
         //向设备管理平台请求同步数据
         $postData = [];
         $postData['group_ids'] = [$id];
         $postData['device_params'] = $deviceParams;
 
-        $result = SeetaDeviceManager::sendRequest(SYSEND_SET_DEFAULT_GROUP_URL, $postData);
-        if (!is_array($result)) {
-            return parent::getResponse(parent::makeErrorResponse($result));
+        $seetaDeviceManager = new SeetaDeviceManager(SeetaDeviceManager::SYSEND_SET_DEFAULT_GROUP_URL, $postData);
+        $result = $seetaDeviceManager->sendRequest("POST");
+        if ($result['res'] != ERR_SUCCESS) {
+            return parent::getResponse(parent::makeErrorResponse($result['res']));
         }
 
         //保存本地数据
         try {
-            $group->name = $name;
             $group->device_params = $deviceParams;
             $group->save();
         } catch (\Exception $exception) {
@@ -220,9 +231,10 @@ class GroupController extends ControllerBase
         $postData = [];
         $postData['group_id'] = $id;
 
-        $result = SeetaDeviceManager::sendRequest(SYSEND_SYSTEM_DELETE_GROUP_URL, $postData);
-        if (!is_array($result)) {
-            return parent::getResponse(parent::makeErrorResponse($result));
+        $seetaDeviceManager = new SeetaDeviceManager(SeetaDeviceManager::SYSEND_SYSTEM_DELETE_GROUP_URL, $postData);
+        $result = $seetaDeviceManager->sendRequest("POST");
+        if ($result['res'] != ERR_SUCCESS) {
+            return parent::getResponse(parent::makeErrorResponse($result['res']));
         }
 
         try {

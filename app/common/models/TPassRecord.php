@@ -98,16 +98,25 @@ class TPassRecord extends ModelHandler
             $query["person_id"] = $data['person_id'];
         }
 
-        if (isset($data['device_code'])) {
-            $query["device_code"] = new Regex('.*'.$data['device_code'].'.*', 'i');
-
+        if (isset($data['time_begin'])) {
+            $query["time"]['$gte'] = $data['time_begin'];
         }
 
-        if(isset($data['field']) && isset($data['order'])){
+        if (isset($data['time_end'])) {
+            $query["time"]['$lte'] = $data['time_end'];
+        }
+
+        if (isset($data['device_code']['$in'])) {
+            $query["device_code"] = $data['device_code'];
+        } elseif (isset($data['device_code']) && !isset($data['device_code']['$in'])) {
+            $query["device_code"] = new Regex('.*' . $data['device_code'] . '.*', 'i');
+        }
+
+        if (isset($data['field']) && isset($data['order'])) {
             $option['sort'] = [$data['field'] => $data['order']];
         }
 
-        if(!empty($get_count)){
+        if (!empty($get_count)) {
             $option['limit'] = $get_count;
             $option['skip'] = $start_index;
         }
@@ -131,8 +140,22 @@ class TPassRecord extends ModelHandler
             $query["person_id"] = $data['person_id'];
         }
 
+        if (isset($data['time_begin'])) {
+            $query["time"]['$gte'] = $data['time_begin'];
+        }
+
+        if (isset($data['time_end'])) {
+            $query["time"]['$lte'] = $data['time_end'];
+        }
+
+
         if (isset($data['device_code'])) {
-            $query["device_code"] = new Regex('.*'.$data['device_code'].'.*', 'i');
+
+            if (isset($data['device_code']['$in'])) {
+                $query["device_code"] = $data['device_code'];
+            } elseif (isset($data['device_code']) && !isset($data['device_code']['$in'])) {
+                $query["device_code"] = new Regex('.*' . $data['device_code'] . '.*', 'i');
+            }
 
         }
 
@@ -140,11 +163,13 @@ class TPassRecord extends ModelHandler
     }
 
     /**
-     * 添加人员额外信息
+     * 添加额外信息
      * @param $passRecords
      * @return array|mixed
+     * @throws \Exception
      */
-    public static function addMoreInfo($passRecords)
+    public static function
+    addMoreInfo($passRecords)
     {
         $isArray = true;
         if (!is_array($passRecords)) {
@@ -162,21 +187,63 @@ class TPassRecord extends ModelHandler
 
         $system = TSystem::findSystem();
         $memberImages = TMemberImage::findByImageIds($memberImageIds);
+        $devices = TDevice::findByCodes($deviceCodes);
+
+        $fields = [];
+        $tFields = TField::search([]);
+        if (count($tFields) >= 1) {
+            foreach ($tFields as $field) {
+                $fields[$field['id']] = $field['name'];
+            }
+        }
+
+        $deviceMap = [];
+        foreach ($devices as $device) {
+            $deviceMap[$device->code] = $device->name;
+        }
+
 
         foreach ($passRecords as $key => $passRecord) {
             //添加人员照片信息
             foreach ($memberImages as $memberImage) {
                 if ($passRecord['person_image_id'] == $memberImage->image_id) {
-                    $passRecord['person_image_path'] = Utility::imagePathToDownloadUrl($system->server_url, $memberImage->image_path);
+                    $passRecord['person_image_path'] = Utility::filePathToDownloadUrl($system->server_url, $memberImage->image_path);
                 }
             }
 
-            $passRecord['capture_image_path'] = Utility::imagePathToDownloadUrl($system->server_url,$passRecord['capture_image_path']);
+            $passRecord['capture_image_path'] = Utility::filePathToDownloadUrl($system->server_url, $passRecord['capture_image_path']);
+
+            //设备名称
+            $passRecord['device_name'] = $deviceMap[$passRecord->device_code];
+
+            //查询获取个人属性
+            $passRecord['attributes'] = [];
+            if (!empty($passRecord['person_id'])) {
+                try {
+                    $person = TMember::findById(new ObjectId($passRecord['person_id']));
+                } catch (\Exception $exception) {
+                    //数据库出错
+                    Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
+                    continue;
+                }
+
+                if (!empty($person)) {
+                    $attributes = (array)$person->attributes;
+                    $memberAttributes = [];
+                    foreach ($fields as $fieldId => $fieldName) {
+                        $memberAttributes[$fieldName] = "";
+                        if (isset($attributes[$fieldId])) {
+                            $memberAttributes[$fieldName] = $attributes[$fieldId];
+                        }
+                    }
+                    $passRecord['attributes'] = $memberAttributes;
+                }
+            }
         }
 
-        if ($isArray){
+        if ($isArray) {
             return $passRecords;
-        }else{
+        } else {
             return $passRecords[0];
         }
 
@@ -189,9 +256,20 @@ class TPassRecord extends ModelHandler
      * @return array|mixed
      * @throws \Exception
      */
-    public static function countCommuterTime($timeBegin, $timeEnd)
+
+    /**
+     * @param array $deviceCodes
+     * @param $timeBegin
+     * @param $timeEnd
+     * @return array
+     * @throws \Exception
+     */
+    public static function countCommuterTime($deviceCodes, $timeBegin, $timeEnd)
     {
         $match = [];
+        if (!empty($deviceCodes)) {
+            $match['device_code']['$in'] = $deviceCodes;
+        }
         $match['time']['$gte'] = $timeBegin;
         $match['time']['$lte'] = $timeEnd;
         $match['is_pass'] = 1;

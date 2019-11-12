@@ -50,6 +50,11 @@ try {
     ]);
 
     /**
+     * Set time zone
+     */
+    date_default_timezone_set('Asia/Shanghai');
+
+    /**
      * Include routes
      */
     require APP_PATH . '/config/routes.php';

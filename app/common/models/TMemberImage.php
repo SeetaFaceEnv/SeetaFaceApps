@@ -45,7 +45,8 @@ class TMemberImage extends ModelHandler
     /**
      * 根据人员id，查询人员照片
      * @param string $id
-     * @return TMemberImage
+     * @return array
+     * @throws \Exception
      */
     public static function findByMemberId($id)
     {
@@ -61,6 +62,7 @@ class TMemberImage extends ModelHandler
      * 根据image_id，查询人员照片
      * @param string $id
      * @return TMemberImage
+     * @throws \Exception
      */
     public static function findByImageId($id)
     {
@@ -74,7 +76,8 @@ class TMemberImage extends ModelHandler
     /**
      * 根据image_id，查询人员照片
      * @param array $ids
-     * @return TMemberImage
+     * @return array
+     * @throws \Exception
      */
     public static function findByImageIds($ids)
     {

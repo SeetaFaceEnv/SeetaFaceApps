@@ -25,15 +25,15 @@ return new \Phalcon\Config([
 
     'database' => [
         'adapter' => 'mongodb',
-        'url' => 'mongodb://hzhs:hzhs@127.0.0.1:27017/db_seeta_ai_building',
+        'url' => 'mongodb://admin:makenosense@192.168.0.8:27018/admin',
         'dbname' => 'db_seeta_ai_building',
         'charset' => 'utf8',
     ],
 
     'redis' => [
         'prefix' => 'tcp://',
-        'host' => '127.0.0.1',
-        'port' => 6379,
+        'host' => '192.168.0.8',
+        'port' => 6389,
         'password' => '',   //local server
     ],
     'mqtt' => [

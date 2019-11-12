@@ -21,6 +21,7 @@ define('ERROR_MSGS', [
     ERR_CODE_UNKNOW => 'code不存在',
     ERR_SYNCHRO_POST_WRONG => '同步接口请求失败',
     ERR_SYNCHRO_DATA_WRONG => '同步数据失败',
+    ERR_AUTH_WRONG => '鉴权失败',
 
     //redis
     ERR_REDIS_CREATE_FAILED => '写入内存失败',
@@ -37,10 +38,14 @@ define('ERROR_MSGS', [
     ERR_MEMBER_INFO_NOT_EXIST => '请填写人员信息或照片信息',
     ERR_MEMBER_FIELD_AND_IMAGE_NOT_EXIST => '请先添加人员字段，或上传照片信息',
     ERR_MEMBER_IMAGE_NOT_EXIST => '人员照片不存在',
+    ERR_MEMBER_IMAGE_EMPTY => '请添加照片',
+    ERR_MEMBER_EXIST => '人员已存在，请勿重复添加',
 
     // 字段
     ERR_FIELD_NOT_EXIST => '字段不存在',
     ERR_FIELD_NAME_EXIST => '字段已存在',
+    ERR_DENIED_DEL_FIELD => '展示字段，不允许删除',
+    ERR_SYSTEM_NOT_CARD_FIELD => '系统未设置证件字段',
 
     //设备
     ERR_DEVICE_NOT_EXIST => '设备不存在',
@@ -64,6 +69,7 @@ define('ERROR_MSGS', [
     //通行时间模板
     ERR_TIME_TEMPLATE_NOT_EXIST => '通行时间模板不存在',
     ERR_TIME_TEMPLATE_STREAM_EXIST => '删除失败，模板正在被流媒体使用',
+    ERR_TIME_TEMPLATE_DEVICE_EXIST => '删除失败，模板正在被设备使用',
 
     //设备管理平台错误码
     ERR_SEETA_DEVICE_1002 => '参数错误',

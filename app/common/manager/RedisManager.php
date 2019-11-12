@@ -1,45 +1,139 @@
 <?php
-/**
- * Created by PhpStorm.
- * User: jiawei
- * Date: 2018/6/21
- * Time: 16:18
- */
+
 namespace SeetaAiBuildingCommunity\Common\Manager;
 
 /*
- * Cache Manager Example
+ * Cache Manager
  * */
-use SeetaAiBuildingCommunity\Common\Library\SeetaRedis;
 
-abstract class RedisManager
+use Predis\Client;
+
+class RedisManager
 {
-    /*
-     * Info table's keynames
-     * */
     const DEF_INFO_PREFIX = 1;
     const DEF_INFO_LIFETIME = 2;
     const DEF_INFO_IS_HASH = 3;
 
     /**
-     * Redis Client
-     * @var SeetaRedis
+     *
+     * @var Client
      * */
     protected $redis;
 
     /**
-     * Modify the constructor according to your need
-     * @param SeetaRedis $redis
-     * @return RedisManager
+     * key的前缀
+     * @var string
      * */
-    public function __construct($redis)
+    protected $prefix;
+
+    /**
+     * @param $host
+     * @param null $password
+     * @param string $prefix
+     * @param int $database
+     */
+    public function __construct($host = "", $password = null, $prefix = "", $database = 0)
     {
-        $this->redis = $redis;
-        return $this;
+        $options = [];
+        if(!empty($password)){
+            $options['parameters']['password'] = $password;
+        }
+
+        if(is_array($host)){
+            $options['cluster'] = 'redis';
+        }
+        else{
+            $options['parameters']['database'] = $database;
+        }
+
+        $this->prefix = $prefix;
+
+        $this->redis = new Client($host, $options);
+    }
+
+    public function __destruct()
+    {
+        $this->redis->disconnect();
     }
 
     /**
-     * check if the cache exists (normal or hash table)
+     * 添加字符串
+     *
+     * @param string $keyName
+     * @param string $val
+     * @param integer $lifetime (Seconds)
+     */
+    public function set($keyName, $val, $lifetime = null) {
+        $key = $this->prefix.$keyName;
+        $this->redis->set($key, $val);
+        if(isset($lifetime)){
+            $this->redis->expire($key, $lifetime);
+        }
+    }
+
+    /**
+     * 添加Hash值
+     *
+     * @param string $keyName
+     * @param string $field
+     * @param string $val
+     * @param integer $lifetime
+     */
+    public function hSet($keyName, $field, $val, $lifetime = null) {
+        $key = $this->prefix.$keyName;
+        $this->redis->hSet($key, $field, $val);
+        if(isset($lifetime)){
+            $this->redis->expire($key, $lifetime);
+        }
+    }
+
+    /**
+     * 删除Hash值
+     *
+     * @param string $keyName
+     * @param string $field
+     * @return integer
+     */
+    public function hDel($keyName, $field) {
+        $key = $this->prefix.$keyName;
+        return $this->redis->hDel($key, $field);
+    }
+
+    /**
+     * 重置TTL
+     *
+     * @param string $keyName
+     * @param integer $lifetime
+     */
+    public function expire($keyName, $lifetime){
+        $key = $this->prefix.$keyName;
+        $this->redis->expire($key, $lifetime);
+    }
+
+    /**
+     * 获取 TTL
+     *
+     * @param string $keyName
+     * @return integer
+     * */
+    public function ttl($keyName){
+        $key = $this->prefix.$keyName;
+        return $this->redis->ttl($key);
+    }
+
+    /**
+     * 获取所有的key
+     *
+     * @param string $keyName
+     * @return integer
+     * */
+    public function keys($keyName){
+        $key = $this->prefix.$keyName;
+        return $this->redis->keys($key);
+    }
+
+    /**
+     * 检查缓存是否存在(普通或Hash)
      * @param array $info
      * @param string $key
      * @return boolean
@@ -50,40 +144,38 @@ abstract class RedisManager
         $key = $info[self::DEF_INFO_PREFIX] . $key;
 
         try {
-            if($info[self::DEF_INFO_IS_HASH]){
-                $res = $this->redis->hGetAll($key);
-            }
-            else{
-                $res = $this->redis->get($key);
+            if ($info[self::DEF_INFO_IS_HASH]) {
+                $res = $this->redis->hGetAll($this->prefix.$key);
+            } else {
+                $res = $this->redis->get($this->prefix.$key);
             }
             return isset($res);
-        }
-        catch (\Exception $e) {
+        } catch ( \Exception $e ) {
             throw $e;
         }
     }
 
     /**
-     * get the TTL of the cache
+     * 从缓存中获取TTL
      * @param array $info
      * @param string $key
      * @return integer
      * @throws \Exception
      * */
-    protected function getTTL($info, $key){
+    protected function getTTL($info, $key)
+    {
         $key = $info[self::DEF_INFO_PREFIX] . $key;
 
         try {
-            return $this->redis->ttl($key);
-        }
-        catch (\Exception $e) {
+            return $this->ttl($key);
+        } catch ( \Exception $e ) {
             throw $e;
         }
     }
 
     /**
-     * Get Cache, works only for Normal type (not for Hash table)
-     * if the type of the cache is Hash table, return false
+     * 获取缓存，只适用于普通类型(不适用Hash)
+     * 如果缓存的类型是Hash，则返回false
      * @param array $info
      * @param string $key
      * @return mixed | boolean
@@ -93,21 +185,20 @@ abstract class RedisManager
     {
         $key = $info[self::DEF_INFO_PREFIX] . $key;
 
-        if($info[self::DEF_INFO_IS_HASH]){
+        if ($info[self::DEF_INFO_IS_HASH]) {
             return false;
         }
 
         try {
-            return $this->redis->get($key);
-        }
-        catch (\Exception $e) {
+            return $this->redis->get($this->prefix.$key);
+        } catch ( \Exception $e ) {
             throw $e;
         }
     }
 
     /**
-     * Get Hash Cache, works only for Hash table
-     * if the type of the cache is not Hash table, return false
+     * 获取Hash缓存，只对Hash表有效
+     * 如果缓存的类型不是Hash，则返回false
      * @param array $info
      * @param string $key
      * @param string $field
@@ -118,21 +209,20 @@ abstract class RedisManager
     {
         $key = $info[self::DEF_INFO_PREFIX] . $key;
 
-        if(!$info[self::DEF_INFO_IS_HASH]){
+        if (!$info[self::DEF_INFO_IS_HASH]) {
             return false;
         }
 
         try {
-            return $this->redis->hGet($key, $field);
-        }
-        catch (\Exception $e) {
+            return $this->redis->hGet($this->prefix.$key, $field);
+        } catch ( \Exception $e ) {
             throw $e;
         }
     }
 
     /**
-     * Get entire Hash Cache, works only for Hash table
-     * if the type of the cache is not Hash table, return false
+     * 获取整个 Hash缓存，只对 Hash表有效
+     * 如果缓存的类型不是Hash，则返回false
      * @param array $info
      * @param string $key
      * @return array | boolean
@@ -142,21 +232,20 @@ abstract class RedisManager
     {
         $key = $info[self::DEF_INFO_PREFIX] . $key;
 
-        if(!$info[self::DEF_INFO_IS_HASH]){
+        if (!$info[self::DEF_INFO_IS_HASH]) {
             return false;
         }
 
         try {
-            return $this->redis->hGetAll($key);
-        }
-        catch (\Exception $e) {
+            return $res = $this->redis->hGetAll($this->prefix.$key);
+        } catch ( \Exception $e ) {
             throw $e;
         }
     }
 
     /**
-     * Set Cache, works only for Normal type (not for Hash table).
-     * If the type of the cache is Hash table, return false.
+     * 设置缓存，只适用于普通类型(不适用 Hash表)。
+     * 如果缓存的类型不是Hash，则返回false
      * @param array $info
      * @param string $key
      * @param integer | string $value
@@ -167,22 +256,21 @@ abstract class RedisManager
     {
         $key = $info[self::DEF_INFO_PREFIX] . $key;
 
-        if($info[self::DEF_INFO_IS_HASH]){
+        if ($info[self::DEF_INFO_IS_HASH]) {
             return false;
         }
 
         try {
-            $this->redis->set($key, $value, $info[self::DEF_INFO_LIFETIME]);
+            $this->set($key, $value, $info[self::DEF_INFO_LIFETIME]);
             return true;
-        }
-        catch (\Exception $e) {
+        } catch ( \Exception $e ) {
             throw $e;
         }
     }
 
     /**
-     * Set Hash Cache, works only for Hash table type.
-     * If the type of the cache is not Hash table, return false.
+     * 设置 Hash缓存，只对 Hash表类型有效。
+     * 如果缓存的类型不是Hash，则返回false
      * @param array $info
      * @param string $key
      * @param string $field
@@ -190,24 +278,24 @@ abstract class RedisManager
      * @return boolean
      * @throws \Exception
      * */
-    protected function setHashCache($info, $key, $field, $value){
+    protected function setHashCache($info, $key, $field, $value)
+    {
         $key = $info[self::DEF_INFO_PREFIX] . $key;
 
-        if(!$info[self::DEF_INFO_IS_HASH]){
+        if (!$info[self::DEF_INFO_IS_HASH]) {
             return false;
         }
 
         try {
-            $this->redis->hSet($key, $field, $value,$info[self::DEF_INFO_LIFETIME]);
+            $this->hSet($key, $field, $value, $info[self::DEF_INFO_LIFETIME]);
             return true;
-        }
-        catch (\Exception $e) {
+        } catch ( \Exception $e ) {
             throw $e;
         }
     }
 
     /**
-     * delete Cache
+     * 删除缓存
      * @param array $info
      * @param string $key
      * @return boolean
@@ -218,14 +306,14 @@ abstract class RedisManager
         $key = $info[self::DEF_INFO_PREFIX] . $key;
 
         try {
-            $this->redis->del($key);
-        } catch (\Exception $e) {
+            $this->redis->del([$this->prefix.$key]);
+        } catch ( \Exception $e ) {
             throw $e;
         }
     }
 
     /**
-     * delete Cache
+     * 删除Hash缓存
      * @param array $info
      * @param string $key
      * @param string $field
@@ -237,18 +325,17 @@ abstract class RedisManager
         $key = $info[self::DEF_INFO_PREFIX] . $key;
 
         try {
-            return $this->redis->hDel($key,$field);
-        }
-        catch (\Exception $e) {
+            return $this->hDel($key, $field);
+        } catch ( \Exception $e ) {
             throw $e;
         }
     }
 
 
     /**
-     * Increment the cache (integer) by 1, if not exit, insert one.
-     * Works only for Normal type (not for Hash table).
-     * If the type of the cache is Hash table, return false.
+     * 将缓存(整数)增加1，如果不退出，则插入1。
+     * 只适用于普通类型(不适用 Hash表)。
+     * 如果缓存的类型是散列表，则返回false。
      * @param array $info
      * @param string $key
      * @return boolean
@@ -258,22 +345,21 @@ abstract class RedisManager
     {
         $key = $info[self::DEF_INFO_PREFIX] . $key;
 
-        if($info[self::DEF_INFO_IS_HASH]){
+        if ($info[self::DEF_INFO_IS_HASH]) {
             return false;
         }
 
         try {
-            $this->redis->incr($key);
-            $res = $this->redis->get($key);
+            $this->redis->incr($this->prefix.$key);
+            $res = $this->redis->get($this->prefix.$key);
             return $res;
-        }
-        catch (\Exception $e) {
+        } catch ( \Exception $e ) {
             throw $e;
         }
     }
 
     /**
-     * refresh the life time
+     * 刷新Key的存在时间
      * @param array $info
      * @param string $key
      * @return boolean
@@ -284,19 +370,17 @@ abstract class RedisManager
         $key = $info[self::DEF_INFO_PREFIX] . $key;
 
         try {
-            if($info[self::DEF_INFO_IS_HASH]){
-                $res = $this->redis->hGetAll($key);
-            }
-            else{
-                $res = $this->redis->get($key);
+            if ($info[self::DEF_INFO_IS_HASH]) {
+                $res = $this->redis->hGetAll($this->prefix.$key);
+            } else {
+                $res = $this->redis->get($this->prefix.$key);
             }
 
-            if(isset($res) && !empty($info[self::DEF_INFO_LIFETIME])){
-                $this->redis->expire($key, $info[self::DEF_INFO_LIFETIME]);
+            if (isset($res) && !empty($info[self::DEF_INFO_LIFETIME])) {
+                $this->expire($key, $info[self::DEF_INFO_LIFETIME]);
                 return true;
             }
-        }
-        catch (\Exception $e) {
+        } catch ( \Exception $e ) {
             throw $e;
         }
         return false;

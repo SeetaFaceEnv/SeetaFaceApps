@@ -3,7 +3,7 @@ namespace SeetaAiBuildingCommunity\Common\Manager;
 
 use Phalcon\Di;
 
-class VerifyCodeManager extends CodeManager
+class VerifyCodeManager extends RedisManager
 {
     const DEF_INFO = [
         self::DEF_INFO_PREFIX => 'code_verify:',
@@ -13,38 +13,58 @@ class VerifyCodeManager extends CodeManager
 
     public function __construct()
     {
-        parent::__construct(Di::getDefault()->get('redis'));
+        $config = Di::getDefault()->get('config')->redis;
+        parent::__construct($config->prefix . $config->host . ':' . $config->port, $config->password);
     }
 
     /**
-     * 添加验证码
-     * @param string $code_tag
-     * @param string $verify_code
+     * add the code
+     * @param $code_tag
+     * @param $verify_code
+     * @throws \Exception
      */
     public function addCode($code_tag, $verify_code)
     {
-        parent::addCodeBase($code_tag, $verify_code, self::DEF_INFO);
+        parent::setCache( self::DEF_INFO, $code_tag, $verify_code);
     }
 
     /**
-     * 添加验证码
-     * @param string $code_tag
-     * @param string $verify_code
-     * @param boolean $ignore_case 是否忽视大小写
+     * check the code
+     * @param $code_tag
+     * @param $verify_code
+     * @param bool $ignore_case 是否忽视大小写
      * @return int 结果码
+     * @throws \Exception
      */
     public function checkCode($code_tag, $verify_code, $ignore_case = true)
     {
-        return parent::checkCodeBase($code_tag, $verify_code, $ignore_case,self::DEF_INFO);
-    }
 
-    public function clearCode($code_tag)
-    {
-        parent::clearCodeBase($code_tag, self::DEF_INFO);
+        $data = parent::getCache(self::DEF_INFO, $code_tag);
+        if ($ignore_case) {
+            $data = strtolower($data);
+            $verify_code = strtolower($verify_code);
+        }
+        if (!empty($data) && $verify_code == $data) {
+            return ERR_SUCCESS;
+        }
+        else if(empty($data)){
+            return ERR_VERIFY_CODE_EXPIRE;
+        }
+        return ERR_VERIFY_WRONG;
     }
 
     /**
-     * 获取图形验证码
+     * delthe code
+     * @param $code_tag
+     * @throws \Exception
+     */
+    public function clearCode($code_tag)
+    {
+        parent::delCache(self::DEF_INFO, $code_tag);
+    }
+
+    /**
+     * creat the picture of tag
      * @param $code
      * @param int $width
      * @param int $height
@@ -53,7 +73,7 @@ class VerifyCodeManager extends CodeManager
      */
     public static function getCaptcha($code, $width = 100, $height = 30, $fontsize = 19)
     {
-        $fontfile = APP_PATH.'/common/library/Cabin-Bold.ttf';
+        $fontfile = RESOURCE_PATH_VERIFY_CODE;
 
         // 创建黑色画布
         $image = imagecreatetruecolor($width, $height);

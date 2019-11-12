@@ -63,7 +63,7 @@ class TErrorLog extends ModelHandler
         $option = array();
 
         if (isset($data['time_begin'])) {
-            $query["time"]['$gte' ] = $data['time_begin'];
+            $query["time"]['$gte'] = $data['time_begin'];
         }
 
         if (isset($data['time_end'])) {
@@ -71,14 +71,18 @@ class TErrorLog extends ModelHandler
         }
 
         if (isset($data['device_code'])) {
-            $query["device_code"] = new Regex('.*'.$data['device_code'].'.*', 'i');
+            if (isset($data['device_code']['$in'])) {
+                $query["device_code"] = $data['device_code'];
+            } else {
+                $query["device_code"] = new Regex('.*' . $data['device_code'] . '.*', 'i');
+            }
         }
 
-        if(isset($data['field']) && isset($data['order'])){
+        if (isset($data['field']) && isset($data['order'])) {
             $option['sort'] = [$data['field'] => $data['order']];
         }
 
-        if(!empty($get_count)){
+        if (!empty($get_count)) {
             $option['limit'] = $get_count;
             $option['skip'] = $start_index;
         }
@@ -99,7 +103,7 @@ class TErrorLog extends ModelHandler
         $option = array();
 
         if (isset($data['time_begin'])) {
-            $query["time"]['$gte' ] = $data['time_begin'];
+            $query["time"]['$gte'] = $data['time_begin'];
         }
 
         if (isset($data['time_end'])) {
@@ -107,10 +111,54 @@ class TErrorLog extends ModelHandler
         }
 
         if (isset($data['device_code'])) {
-            $query["device_code"] = new Regex('.*'.$data['device_code'].'.*', 'i');
+            if (isset($data['device_code']['$in'])) {
+                $query["device_code"] = $data['device_code'];
+            } else {
+                $query["device_code"] = new Regex('.*' . $data['device_code'] . '.*', 'i');
+            }
         }
+
 
         return parent::countByQuery($query, $option);
     }
 
+    /**
+     * 添加额外信息
+     * @param $errorLogs
+     * @return array|mixed
+     * @throws \Exception
+     */
+    public static function addMoreInfo($errorLogs)
+    {
+        $isArray = true;
+        if (!is_array($errorLogs)) {
+            // 假如传入的是对象
+            $errorLogs = [$errorLogs];
+            $isArray = false;
+        }
+
+        $deviceCodes = [];
+        foreach ($errorLogs as $errorLog) {
+            $deviceCodes[] = $errorLog['device_code'];
+        }
+        $devices = TDevice::findByCodes($deviceCodes);
+
+        $deviceMap = [];
+        foreach ($devices as $device) {
+            $deviceMap[$device->code] = $device->name;
+        }
+
+        foreach ($errorLogs as $key => $errorLog) {
+            //设备名称
+            $errorLog['device_name'] = $deviceMap[$errorLog->device_code];
+        }
+
+        if ($isArray) {
+            return $errorLogs;
+        } else {
+            return $errorLogs[0];
+        }
+
+    }
+    
 }

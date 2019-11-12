@@ -1,10 +1,4 @@
 <?php
-/**
- * Created by PhpStorm.
- * User: ZHU
- * Date: 20/12/2018
- * Time: 17:37
- */
 
 namespace SeetaAiBuildingCommunity\Modules\Backend\Controllers;
 
@@ -17,16 +11,23 @@ use SeetaAiBuildingCommunity\Common\Manager\Utility;
 
 class ControllerBase extends Controller
 {
+
+
+    const FIELD_NAME_USER_ID = 'user_id';
+    const DEF_INFO_PREFIX = 1;
+    const DEF_INFO_LIFETIME = 2;
+    const DEF_INFO_IS_HASH = true;
+
     /**
      * 从session中获取用户名
      *
      * @param string $session_id 会话ID
      * @return string
+     * @throws \Exception
      * */
     public function getUserIdBySession($session_id)
     {
-        $platformType = $this->request->getHeader("x-request-source-type") ?: PLATFORM_TYPE_WEB;
-        $session_manager = new SessionManager($platformType);
+        $session_manager = new SessionManager();
         return $session_manager->getSession($session_id, SessionManager::FIELD_NAME_USER_ID);
     }
 
@@ -39,8 +40,7 @@ class ControllerBase extends Controller
      * */
     public function getUserTypeBySession($session_id)
     {
-        $platformType = $this->request->getHeader("x-request-source-type") ?: PLATFORM_TYPE_WEB;
-        $session_manager = new SessionManager($platformType);
+        $session_manager = new SessionManager();
         return $session_manager->getSession($session_id, SessionManager::FIELD_NAME_USER_TYPE);
     }
 
@@ -138,16 +138,26 @@ class ControllerBase extends Controller
      * */
     public function actionChecker($sessionId, &$userType, &$privateKey, $refreshSession = true)
     {
-        $platformType = $this->request->getHeader("x-request-source-type") ?: PLATFORM_TYPE_WEB;
         if (Di::getDefault()->get('config')->mode == SERVER_MODE_DEBUG) {
             return ERR_SUCCESS;
         }
 
+        try {
+            $userType = self::getUserTypeBySession($sessionId);
+            if (empty($userType)) {
+                return ERR_USER_SESSION_EXPIRED;
+            }
+        } catch ( \Exception $exception ) {
+            //数据库出错
+            Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
+            return ERR_CACHE_WRONG;
+        }
+
         //获取密钥
-        $rsa_manager = new RsaManager($platformType);
+        $rsa_manager = new RsaManager();
         try {
             $privateKey = $rsa_manager->getPrivateKeyBySessionId($sessionId);
-        } catch (\Exception $exception) {
+        } catch ( \Exception $exception ) {
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return ERR_CACHE_WRONG;
         }
@@ -156,13 +166,7 @@ class ControllerBase extends Controller
             return ERR_USER_SESSION_EXPIRED;
         } else if ($refreshSession) {
             //刷新session
-            Utility::refreshSession($sessionId, $platformType);
+            Utility::refreshSession($sessionId);
         }
-
-        //获取所有POST参数
-        $data = $this->request->getPost();
-
-        //检查签名
-//        return Utility::checkSignature($privateKey, $data, $this->request->getClientAddress(), $platformType);
     }
 }

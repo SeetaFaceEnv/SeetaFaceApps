@@ -6,6 +6,8 @@ use MongoDB\BSON\ObjectId;
 use SeetaAiBuildingCommunity\Common\Manager\Utility;
 use SeetaAiBuildingCommunity\Models\TField;
 use SeetaAiBuildingCommunity\Models\TMember;
+use SeetaAiBuildingCommunity\Models\TStream;
+use SeetaAiBuildingCommunity\Models\TSystem;
 
 class FieldController extends ControllerBase
 {
@@ -75,6 +77,10 @@ class FieldController extends ControllerBase
             $field = TField::findById(new ObjectId($id));
             if (empty($field)) {
                 return parent::getResponse(parent::makeErrorResponse(ERR_FIELD_NOT_EXIST));
+            }
+            $res = TField::findByFieldName($name);
+            if ((string)$field->_id != $id && !empty($res)) {
+                return parent::getResponse(parent::makeErrorResponse(ERR_FIELD_NAME_EXIST));
             }
             $field->name = (!empty($name) ? $name : $field->name);
             $field->save();
@@ -146,9 +152,20 @@ class FieldController extends ControllerBase
 
         try {
             $field = TField::findById(new ObjectId($id));
+            $system = TSystem::findSystem();
             if (empty($field)) {
                 return parent::getResponse(parent::makeErrorResponse(ERR_FIELD_NOT_EXIST));
             }
+
+            //设置硬件显示字段
+            if (!empty($system->show_field)) {
+                foreach ($system->show_field as $field_id){
+                    if ($field_id == $id){
+                        return parent::getResponse(parent::makeErrorResponse(ERR_DENIED_DEL_FIELD));
+                    }
+                }
+            }
+
             //假删除
             TField::falseDeleteById(new ObjectId($id));
             //删除掉所有人员的此字段

@@ -123,19 +123,21 @@ class TimeTemplateController extends ControllerBase
             $deviceObIds[] = $device->_id;
         }
 
-        //更改 设备包含模板 设备的流参数
+        $seetaDeviceManager = new SeetaDeviceManager(SeetaDeviceManager::SYSEND_CAMERA_EDIT_URL);
+        //更改 使用模板的设备 的流参数
         foreach ($devices as $device){
             $device->camera_params['time_slots'] = $timeSlots;
-            $cameraParam = $device->camera_params;
+            $cameraParams = $device->camera_params;
 
             //请求设备管理平台，更改对应设备的流参数
             $postData = [];
             $postData['device_code'] = $device->code;
-            $postData['camera_params'] = [$cameraParam];
+            $postData['camera_params'] = [$cameraParams];
 
-            $result = SeetaDeviceManager::sendRequest(SYSEND_CAMERA_EDIT_URL, $postData);
-            if (!is_array($result)) {
-                return parent::getResponse(parent::makeErrorResponse($result));
+            $seetaDeviceManager->setParams($postData);
+            $result = $seetaDeviceManager->sendRequest("POST");
+            if ($result['res'] != ERR_SUCCESS) {
+                return parent::getResponse(parent::makeErrorResponse($result['res']));
             }
             if ($result['device_result'] != true) {
                 return parent::getResponse(parent::makeErrorResponse(ERR_DEVICE_OPERATION_WRONG));
@@ -149,17 +151,17 @@ class TimeTemplateController extends ControllerBase
                 if (in_array($streamId , (array)$device->stream_ids)) {
 
                     $stream->camera_params['time_slots'] = $timeSlots;
-                    $cameraParam = $stream->camera_params;
-                    $cameraParam['_id'] = $streamId;
+                    $cameraParams = $stream->camera_params;
+                    $cameraParams['_id'] = $streamId;
 
                     //请求设备管理平台，更改对应设备的流参数
                     $postData = [];
                     $postData['device_code'] = $device->code;
-                    $postData['camera_params'] = [$cameraParam];
+                    $postData['camera_params'] = [$cameraParams];
 
-                    $result = SeetaDeviceManager::sendRequest(SYSEND_CAMERA_EDIT_URL, $postData);
-                    if (!is_array($result)) {
-                        return parent::getResponse(parent::makeErrorResponse($result));
+                    $result = $seetaDeviceManager->sendRequest("POST");
+                    if ($result['res'] != ERR_SUCCESS) {
+                        return parent::getResponse(parent::makeErrorResponse($result['res']));
                     }
                     if ($result['device_result'] != true) {
                         return parent::getResponse(parent::makeErrorResponse(ERR_DEVICE_OPERATION_WRONG));
@@ -253,11 +255,16 @@ class TimeTemplateController extends ControllerBase
         }
 
         try {
-            //存在设备的设备组不允许删除
+            //被使用的模板不允许删除
             $stream = TStream::findByTemplateId($id);
             if (!empty($stream)) {
                 return parent::getResponse(parent::makeErrorResponse(ERR_TIME_TEMPLATE_STREAM_EXIST));
             }
+            $device = TDevice::findByTemplateId($id);
+            if (!empty($device)) {
+                return parent::getResponse(parent::makeErrorResponse(ERR_TIME_TEMPLATE_DEVICE_EXIST));
+            }
+
             //假删除
             TTimeTemplate::falseDeleteById(new ObjectId($id));
         } catch (\Exception $exception) {

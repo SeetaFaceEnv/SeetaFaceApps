@@ -14,7 +14,8 @@ class FileManager extends RedisManager
 
     public function __construct()
     {
-        parent::__construct(Di::getDefault()->get('redis'));
+        $config = Di::getDefault()->get('config')->redis;
+        parent::__construct($config->prefix . $config->host . ':' . $config->port, $config->password);
     }
 
     /**
@@ -32,13 +33,13 @@ class FileManager extends RedisManager
             $file_path = null;
             if (!file_exists($dir)) {
                 $res = mkdir($dir, 0755, true);
-                if ($res == false){
+                if ($res == false) {
                     throw new \Exception("文件读写错误", ERR_FILE_WRITE_WRONG);
                 }
             }
             $file_path = $dir . $file_name;
             $file->moveTo($file_path);
-        } catch (\Exception $exception) {
+        } catch ( \Exception $exception ) {
             /*need log*/
             throw new \Exception($exception->getMessage(), ERR_FILE_WRITE_WRONG);
         }
@@ -46,52 +47,56 @@ class FileManager extends RedisManager
     }
 
     /**
-     *获取指定目录下所有文件名
+     * 获取指定目录下所有文件名
      *
      * @param string $dir 路径名
      * @return array
      * @throws $exception
      */
-    public static function listFile($dir){
+    public static function listFile($dir)
+    {
         try {
             if (!file_exists($dir)) {
                 $res = mkdir($dir, 0755, true);
-                if ($res == false){
+                if ($res == false) {
                     throw new \Exception("文件读写错误", ERR_API_FILE_WRITE_WRONG);
                 }
             }
 
             $filePaths = scandir($dir);
             $result = [];
-            foreach ($filePaths as $key => $filePath){
-                if ($filePath != "." && $filePath != ".." ){
+            foreach ($filePaths as $key => $filePath) {
+                if ($filePath != "." && $filePath != "..") {
                     $result[] = $filePath;
                 }
             }
 
             return $result;
-        } catch (\Exception $exception) {
-            /*need log*/
+        } catch ( \Exception $exception ) {
             throw new \Exception("文件读写错误", ERR_API_FILE_WRITE_WRONG);
         }
     }
 
     /**
-     * 添加file key
-     * @param string $fileKey
-     * @param string $filePath
-     * @return boolean
-     * */
-     public function setFileKey($fileKey, $filePath){
-        return $this->setCache(self::DEF_INFO, $fileKey, $filePath);
+     *  添加file key
+     * @param $fileKey
+     * @param $filePath
+     * @return bool
+     * @throws \Exception
+     */
+    public function setFileKey($fileKey, $filePath)
+    {
+        return parent::setCache(self::DEF_INFO, $fileKey, $filePath);
     }
 
     /**
      * 获取file key
-     * @param string $fileKey
-     * @return string | boolean
-     * */
-    public function getFileKey($fileKey){
-        return $this->getCache(self::DEF_INFO, $fileKey);
+     * @param $fileKey
+     * @return bool|mixed
+     * @throws \Exception
+     */
+    public function getFileKey($fileKey)
+    {
+        return parent::getCache(self::DEF_INFO, $fileKey);
     }
 }

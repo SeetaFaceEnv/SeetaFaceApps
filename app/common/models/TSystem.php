@@ -27,6 +27,24 @@ class TSystem extends ModelHandler
      *
      * @var string
      */
+    public $person_id;
+
+    /**
+     *
+     * @var array
+     */
+    public $show_field;
+
+    /**
+     *
+     * @var string
+     */
+    public $card_field;
+
+    /**
+     *
+     * @var string
+     */
     public $seetacloud_url;
 
     /**
@@ -34,10 +52,11 @@ class TSystem extends ModelHandler
      *
      * @param string
      * @return TSystem
+     * @throws \Exception
      */
     public static function findSystem()
     {
-        $query = array();
+        $query = [];
 
         return parent::findByQuery($query);
     }

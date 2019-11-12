@@ -19,29 +19,16 @@ class RsaManager extends RedisManager
         self::DEF_INFO_IS_HASH => true,
     ];
 
-    protected $defInfoMobile = [
-        self::DEF_INFO_PREFIX => 'rsa_long:',
-        self::DEF_INFO_LIFETIME => NULL,
-        self::DEF_INFO_IS_HASH => true,
-    ];
-
-    protected $platformType;
     protected $def_info;
 
     const FIELD_NAME_PRIVATE_KEY = 'private_key';
     const FIELD_NAME_PUBLIC_KEY = 'public_key';
 
-    public function __construct($platformType = PLATFORM_TYPE_WEB)
+    public function __construct()
     {
-        parent::__construct(Di::getDefault()->get('redis'));
-        $this->platformType = $platformType;
-        if ((int) $platformType == PLATFORM_TYPE_WEB)
-        {
-            $this->def_info = $this->defInfoWeb;
-        }
-        else{
-            $this->def_info = $this->defInfoMobile;
-        }
+        $config = Di::getDefault()->get('config')->redis;
+        parent::__construct($config->prefix . $config->host . ':' . $config->port, $config->password);
+        $this->def_info = $this->defInfoWeb;
     }
 
     /**

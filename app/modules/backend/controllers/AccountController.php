@@ -1,9 +1,10 @@
 <?php
+
 namespace SeetaAiBuildingCommunity\Modules\Backend\Controllers;
 
 use MongoDB\BSON\ObjectId;
-use SeetaAiBuildingCommunity\Common\Library\Gateway;
-use SeetaAiBuildingCommunity\Common\Manager\GatewayManager;
+use Phalcon\Di;
+use SeetaAiBuildingCommunity\Common\Manager\MqttManager;
 use SeetaAiBuildingCommunity\Common\Manager\RsaManager;
 use SeetaAiBuildingCommunity\Common\Manager\SessionManager;
 use SeetaAiBuildingCommunity\Common\Manager\Utility;
@@ -35,7 +36,7 @@ class AccountController extends ControllerBase
 
         try {
             $user = TAdmin::findByUsername($account);
-        } catch (\Exception $exception) {
+        } catch ( \Exception $exception ) {
             //数据库出错
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
@@ -46,13 +47,13 @@ class AccountController extends ControllerBase
             return parent::getResponse(parent::makeErrorResponse(ERR_PASSWORD_NOT_MATCHED));
         }
 
-        $rsaManager = new RsaManager(PLATFORM_TYPE_WEB);
+        $rsaManager = new RsaManager();
 
         $sessionId = Utility::create_uuid();
 
-        try{
+        try {
             $publicKey = $rsaManager->createRsaKeyPairs($sessionId);
-        }catch (\Exception $exception){
+        } catch ( \Exception $exception ) {
             //数据库出错
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return parent::getResponse(parent::makeErrorResponse(ERR_CACHE_WRONG));
@@ -86,10 +87,10 @@ class AccountController extends ControllerBase
         }
 
         //获取密钥
-        $rsaManager = new RsaManager(PLATFORM_TYPE_WEB);
-        try{
+        $rsaManager = new RsaManager();
+        try {
             $privateKey = $rsaManager->getPrePrivateKeyBySessionId($sessionId);
-        }catch (\Exception $exception){
+        } catch ( \Exception $exception ) {
             //数据库出错
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return parent::getResponse(parent::makeErrorResponse(ERR_CACHE_WRONG));
@@ -100,11 +101,17 @@ class AccountController extends ControllerBase
 
         try {
             $user = TAdmin::findByUsername($account);
+            $userId = (string)$user->_id;
             $userType = USER_TYPE_ADMIN;
-        } catch (\Exception $exception) {
+        } catch ( \Exception $exception ) {
             //数据库出错
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
+        }
+
+        //用户不存在
+        if (empty($user)) {
+            return parent::getResponse(parent::makeErrorResponse(ERR_PASSWORD_NOT_MATCHED));
         }
 
         //对密码，进行rsa解密
@@ -113,21 +120,19 @@ class AccountController extends ControllerBase
             return parent::getResponse(parent::makeErrorResponse(ERR_PARAM_WRONG));
         }
 
-        try{
-            //用户不存在
-            if (empty($user)) {
-                return parent::getResponse(parent::makeErrorResponse(ERR_PASSWORD_NOT_MATCHED));
-            }
-            //密码错误
-            else if ($user->password != bin2hex(hash('sha256', $pwd, true))) {
-                //删除RSA密钥
-                $rsaManager->clearKeys($sessionId);
-                return parent::getResponse(parent::makeErrorResponse(ERR_PASSWORD_NOT_MATCHED));
-            }
+
+        //密码错误
+        if ($user->password != bin2hex(hash('sha256', $pwd, true))) {
+            //删除RSA密钥
+            $rsaManager->clearKeys($sessionId);
+            return parent::getResponse(parent::makeErrorResponse(ERR_PASSWORD_NOT_MATCHED));
+        } else if ($user->status != ADMIN_STATUS_VALID) {
             //账户未生效
-            else if ($user->status != ADMIN_STATUS_VALID) {
-                return parent::getResponse(parent::makeErrorResponse(ERR_PASSWORD_NOT_MATCHED));
-            }
+            return parent::getResponse(parent::makeErrorResponse(ERR_PASSWORD_NOT_MATCHED));
+        }
+
+
+        try {
 
             $sessionManager = new SessionManager();
 
@@ -143,9 +148,11 @@ class AccountController extends ControllerBase
             $accessToken = base64_encode($accessToken);
 
             // 注册session使用者
-            $userIdInCache = parent::getUserIdBySession($sessionId);
+            // $userIdInCache = parent::getUserIdBySession($sessionId);
+            $userIdInCache = $sessionManager->getSession($sessionId, SessionManager::FIELD_NAME_USER_ID);
+
             if (empty($userIdInCache)) {
-                $sessionManager->setSession($sessionId, SessionManager::FIELD_NAME_USER_ID, (string) $user->_id);
+                $sessionManager->setSession($sessionId, SessionManager::FIELD_NAME_USER_ID, $userId);
             }
 
             // 注册session使用者用户类型
@@ -155,27 +162,33 @@ class AccountController extends ControllerBase
             }
 
             // 检测是否有其他人登陆此账号
-            $sessionIdInCache = $sessionManager->getSessionIdByUserId((string) $user->_id);
+            $sessionIdInCache = $sessionManager->getSessionIdByUserId($userId);
+
             if (empty($sessionIdInCache)) {
-                $sessionManager->setSessionIdByUserId((string) $user->_id, $sessionId);
+                $sessionManager->setSessionIdByUserId($userId, $sessionId);
             } else {
                 //假如存在，给前者推送被挤下线消息，删除前者session
-                $msg = array(
+                $msg = [
                     "command" => "repeat_login",
                     "content" => [
-                        "time" => time(),
+                        "time" => 1000 * time(),
                     ]
-                );
-                Gateway::sendToUid($sessionIdInCache, json_encode($msg, JSON_UNESCAPED_UNICODE));
+                ];
+
+                //推送消息到指定topic
+                $mqtt = new MqttManager();
+                $topic_id = "admin:topic_id:" . $userId;
+                $mqtt->sendMsg($topic_id, json_encode($msg, JSON_UNESCAPED_UNICODE));
+
 
                 $rsaManager->clearKeys($sessionIdInCache);
                 $sessionManager->deleteSession($sessionIdInCache);
-                $sessionManager->setSessionIdByUserId((string) $user->_id, $sessionId);
+                $sessionManager->setSessionIdByUserId($userId, $sessionId);
             }
 
             //成功登陆，刷新rsa密钥存活时间
             $rsaManager->refreshRsaKey($sessionId);
-        }catch (\Exception $exception){
+        } catch ( \Exception $exception ) {
             //数据库出错
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return parent::getResponse(parent::makeErrorResponse(ERR_CACHE_WRONG));
@@ -185,6 +198,7 @@ class AccountController extends ControllerBase
             CODE => ERR_SUCCESS,
             "access_token" => $accessToken,
             "username" => $user->username,
+            "topic_id" => $userId,
             "user_type" => $userType,
         ));
     }
@@ -208,14 +222,14 @@ class AccountController extends ControllerBase
 
         $sessionManager = new SessionManager();
 
-        try{
+        try {
             //删除session
             $sessionManager->deleteSession($sessionId);
 
             //清除密钥
-            $rsaManager = new RsaManager(PLATFORM_TYPE_WEB);
+            $rsaManager = new RsaManager();
             $rsaManager->clearKeys($sessionId);
-        }catch (\Exception $exception){
+        } catch ( \Exception $exception ) {
             //数据库出错
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return parent::getResponse(parent::makeErrorResponse(ERR_CACHE_WRONG));
@@ -239,8 +253,14 @@ class AccountController extends ControllerBase
 
         $code = Utility::generateRandomCode(4);
 
-        $verifyCodeManager = new VerifyCodeManager();
-        $verifyCodeManager->addCode($codeTag, $code);
+        try {
+            $verifyCodeManager = new VerifyCodeManager();
+            $verifyCodeManager->addCode($codeTag, $code);
+        } catch ( \Exception $exception ) {
+            //数据库出错
+            Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
+            return parent::getResponse(parent::makeErrorResponse(ERR_CACHE_WRONG));
+        }
 
         $res = VerifyCodeManager::getCaptcha($code);
         header("Content-Type:image/png");
@@ -282,10 +302,10 @@ class AccountController extends ControllerBase
         //获取用户
         try {
             $user = TAdmin::findById(new ObjectId($userId));
-            if (empty($user)){
+            if (empty($user)) {
                 return parent::getResponse(parent::makeErrorResponse(ERR_ADMIN_NOT_EXIST));
             }
-        } catch (\Exception $exception) {
+        } catch ( \Exception $exception ) {
             //数据库出错
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
@@ -300,7 +320,7 @@ class AccountController extends ControllerBase
 
         try {
             $user->save();
-        } catch (\Exception $exception) {
+        } catch ( \Exception $exception ) {
             //数据库出错
             Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
             return parent::getResponse(parent::makeErrorResponse(ERR_DB_WRONG));
@@ -311,35 +331,31 @@ class AccountController extends ControllerBase
         ));
     }
 
-    /*
-     * 获取gateway（tcp） token值
-     * */
-    public function getTcpInfoAction()
+    /**
+     *  获取mqtt服务地址
+     * @return string
+     */
+    public function getMqttInfoAction()
     {
-        $sessionId = $this->request->getPost("session_id");
 
+        $sessionId = $this->request->getPost("session_id");
         if (empty($sessionId)) {
             return parent::getResponse(parent::makeErrorResponse(ERR_PARAM_WRONG));
         }
 
-        $GatewayManager = new GatewayManager();
-
-        try {
-            //创建gwToken
-            $gwToken = $GatewayManager->createGWToken();
-
-            //将gwToken和session_id绑定
-            $GatewayManager->setAdminGWToken($gwToken, $sessionId);
-        } catch (\Exception $exception) {
-            //数据库出错
-            Utility::log('logger', $exception->getMessage(), __METHOD__, __LINE__);
-            return parent::getResponse(parent::makeErrorResponse(ERR_REDIS_CREATE_FAILED));
+        //安全性检验
+        $result = parent::actionChecker($sessionId, $userType, $privateKey);
+        if ($result != ERR_SUCCESS) {
+            return parent::getResponse(parent::makeErrorResponse($result));
         }
+        $config = Di::getDefault()->get('config')->mqtt;
+        $mqtt_url = 'ws://' . $config->host . ':' . $config->webPort . '/mqtt';
 
         return parent::getResponse(array(
             CODE => ERR_SUCCESS,
-            "gw_url" => WEBSOCKET_URL,
-            "gw_token" => $gwToken,
+            "mqtt_url" => base64_encode($mqtt_url),
+            "mqtt_user" => base64_encode($config->user),
+            "mqtt_pwd" => base64_encode($config->passwd)
         ));
 
     }
