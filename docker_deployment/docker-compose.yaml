@@ -1,0 +1,26 @@
+version: "3.7"
+services:
+  php:
+    image: seetaresearch/ai_building_php_fpm:latest
+    container_name: php_release
+    restart: always
+    ports:
+      - 9000:9000
+    volumes:
+      - ./config.php:/app/php/app/config/config.php
+      - ./files:/app/php/files
+  nginx:
+    image: seetaresearch/ai_building_nginx:latest
+    container_name: nginx_release
+    restart: always
+    ports:
+      - 9191:9191
+    volumes:
+      - ./config.js:/app/web/config.js
+      - ./files:/app/files
+  redis:
+    image: redis:latest
+    container_name: redis_release
+    restart: always
+    ports:
+      - 6389:6379

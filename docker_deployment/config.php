@@ -10,7 +10,6 @@ defined('LOG_PATH') || define('LOG_PATH', FILE_ROOT_PATH.'/log/php');
 
 //设备管理平台IP
 defined('SYSEND_SERVER') || define('SYSEND_SERVER',"http://192.168.0.7:7879/");
-//defined('SYSEND_SERVER') || define('SYSEND_SERVER',"http://192.168.0.7:7878/");
 defined('SYSEND_PREFIX') || define('SYSEND_PREFIX',SYSEND_SERVER. "seetadevice/v1/platform");
 
 return new \Phalcon\Config([
