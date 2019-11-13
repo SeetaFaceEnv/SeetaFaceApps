@@ -11,10 +11,10 @@
 
 
 ##  三、目录架构
-**- app** ：为后台业务层代码
-**- docker_deployment**：使用docker-compose部署项目的配置文件
+* app ：为后台业务层代码
+* docker_deployment：使用docker-compose部署项目的配置文件
 
-
+> 程序目录：
 
 app
 
@@ -48,8 +48,6 @@ app
       - MainTask.php 				【脚本文件】
 
 ## 四、系统设置
-
-### 1、修改配置信息
 
 打开`项目php目录/app/config/config.php`文件
 
@@ -108,7 +106,7 @@ defined('SYSEND_SERVER') || define('SYSEND_SERVER',"http://192.168.0.7:7879/");
         'password' => '',   //local server
     ],
 
-#将mqtt信息改成实际服务器信息，以及端口
+#将mqtt信息改成实际服务器信息，以及端口,若设置了账号的密码，则填写相应的redis密码
 'mqtt' => [
         'host' => '192.168.0.8',
         'port' => 1883,
@@ -120,15 +118,13 @@ defined('SYSEND_SERVER') || define('SYSEND_SERVER',"http://192.168.0.7:7879/");
 
 
 
-### 2、创建管理员用户
+## 五、管理员账号
 
-`php目录/app/modules/cli/tasks/MainTask.php` 中的 `createAdminAction` 将会创建初始化的 admin账号
+系统初始账户为：
 
-可直接在终端输入命令 ，执行此脚本
+用户名：admin
 
-```bash
-$ php /home/www-root/SeetaAiBuildingCommunity/php/run main createAdmin
-```
+密    码：123456
 
-创建的初始账户账户，用户名：admin，密码：123456
+创建管理员账号方式，请参考：[部署文档](<https://github.com/SeetaFaceEnv/SeetaFaceAppsDocs/blob/master/doc/deployment.md>)
 
