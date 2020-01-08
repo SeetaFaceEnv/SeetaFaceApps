@@ -1,0 +1,32 @@
+server:
+  mode: debug
+  port: 6969
+  gather_switch: close
+  third_report:
+  sign: 4cc89aa9b9684076804b7974cc16caf1
+  log_cycle: 180
+mongo:
+  ip: 127.0.0.1
+  port: 27017
+  db: seeta_device_community
+  username:
+  password:
+mqtt:
+  ip: 192.168.0.18
+  tcp_port: 1883
+  ws_port: 8083
+  web_scheme: ws
+  username: admin
+  password: public
+  status_topic: status
+  record_topic: record
+seeta_device:
+  addr: http://192.168.0.7:7878
+  callback_addr: http://192.168.0.18:6969
+  timeout: 20
+path:
+  log: logs/
+  data: data/
+  pass_record: passRecords/
+  gather: gather/
+  fonts: resource/fonts/

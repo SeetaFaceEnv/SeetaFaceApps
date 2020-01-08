@@ -1,26 +1,50 @@
+# docker version 18.06.0+
 version: "3.7"
 services:
-  php:
-    image: seetaresearch/ai_building_php_fpm:latest
-    container_name: php_release
+  mongo:
+    container_name: ${server_name}_mongo
+    image: mongo:4.2
     restart: always
-    ports:
-      - 9000:9000
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${mongo_user}
+      MONGO_INITDB_ROOT_PASSWORD: ${mongo_password}
     volumes:
-      - ./config.php:/app/php/app/config/config.php
-      - ./files:/app/php/files
-  nginx:
-    image: seetaresearch/ai_building_nginx:latest
-    container_name: nginx_release
-    restart: always
+      - ${dir_prefix}/${mongo_dir}:/data/db
     ports:
-      - 9191:9191
+      - ${mongo_port}:27017
+  emqx:
+    container_name: ${server_name}_emqx
+    restart: always
+    image: emqx/emqx:v3.2.3
+    ports:
+      - ${mqtt_tcp}:1883
+      - ${mqtt_dashboard}:18083
+      - ${mqtt_ws}:8083
+  server:
+    container_name: ${server_name}_server
+    image: ${server_image}
+    depends_on:
+      - emqx
+      - mongo
+    restart: on-failure
     volumes:
-      - ./config.js:/app/web/config.js
-      - ./files:/app/files
-  redis:
-    image: redis:latest
-    container_name: redis_release
-    restart: always
+      - ${dir_prefix}/${server_dir_log}:/code/logs
+      - ${dir_prefix}/${server_dir_data}:/code/data
+      - ${dir_prefix}/${server_dir_pass_record}:/code/passRecords
+      - ${dir_prefix}/${server_dir_gather}:/code/gather
+      - ${server_dir_resource}:/code/resource
     ports:
-      - 6389:6379
+      - ${server_port}:6969
+    environment:
+      MONGO_IP: ${mongo_ip}
+      MONGO_PORT: ${mongo_port}
+      MONGO_USER: ${mongo_user}
+      MONGO_PASSWORD: ${mongo_password}
+      MQTT_IP: ${mqtt_ip}
+      MQTT_TCP: ${mqtt_tcp}
+      MQTT_WS: ${mqtt_ws}
+      MQTT_USER: ${mqtt_user}
+      MQTT_PASSWORD: ${mqtt_password}
+      MQTT_WEB_SCHEME: ${mqtt_web_scheme}
+      SERVER_MODE: ${server_mode}
+      SERVER_PORT: ${server_port}
