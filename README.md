@@ -82,7 +82,7 @@ path:
 
 ```yaml
 seeta_device:
-  addr: http://192.168.0.7:7878 #设备管理平台地址
+  addr: http://192.168.0.7:7878 #设备管理平台地址，一般与后台位于统一服务器
   callback_addr: http://192.168.0.18:6969 #设备管理平台回调地址
   timeout: 20 #设备管理平台请求超时
 ```
@@ -92,7 +92,7 @@ seeta_device:
 ```yaml
 # 将以下的mongodb的信息，改成实际的mongodb信息
 mongo:
-  ip: 127.0.0.1
+  ip: 127.0.0.1 #部署mongo的服务器地址
   port: 27017
   db: seeta_device_community
   username:
@@ -100,10 +100,10 @@ mongo:
 
 #将mqtt信息改成实际服务器信息，以及端口,若设置了账号的密码，则填写相应的mqtt账号密码
 mqtt:
-  ip: 192.168.0.18
+  ip: 192.168.0.18 #部署emq的服务器
   tcp_port: 1883
   ws_port: 8083
-  web_scheme: ws
+  web_scheme: ws #若后端为https，则改为wss
   username: admin
   password: public
   status_topic: status
