@@ -129,5 +129,5 @@ server:
 
 密    码：seeta110
 
-创建管理员账号方式，请参考：[部署文档](<https://github.com/SeetaFaceEnv/SeetaFaceAppsDocs/blob/master/doc/deployment.md>)
+创建管理员账号方式，请参考：[部署文档](<https://github.com/SeetaFaceEnv/SeetaFaceAppsDocs/blob/master/deployment.md>)
 
