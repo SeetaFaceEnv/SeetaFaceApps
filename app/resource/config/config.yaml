@@ -1,7 +1,6 @@
 server:
   mode: debug
   port: 6969
-  gather_switch: close
   third_report:
   sign: 4cc89aa9b9684076804b7974cc16caf1
   log_cycle: 180

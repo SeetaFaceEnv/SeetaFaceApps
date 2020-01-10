@@ -116,7 +116,6 @@ mqtt:
 server:
   mode: debug #运行模式，支持debug,release,test
   port: 6969 #运行端口
-  gather_switch: close #设备数据采集开关，支持close,all,pass,notPass
   third_report: #第三方上报地址
   sign: 4cc89aa9b9684076804b7974cc16caf1 #第三方调用信息签名
   log_cycle: 180 #日志清除间隔
